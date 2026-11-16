@@ -1,0 +1,2 @@
+# The API creates data/store.json here on its first start.
+# It is intentionally ignored because it contains local demo records and password hashes.
