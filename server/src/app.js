@@ -13,10 +13,11 @@ import { createInvoicesRouter } from './routes/invoices.routes.js';
 import { createMeetingsRouter } from './routes/meetings.routes.js';
 import { createWorkspaceRouter } from './routes/workspace.routes.js';
 
-export function createApp({ store, sessions, clientDistPath }) {
+export function createApp({ store, sessions, storage, clientDistPath }) {
   const app = express();
   app.locals.store = store;
   app.locals.sessions = sessions;
+  app.locals.storage = storage;
 
   app.disable('x-powered-by');
   app.use(helmet({ crossOriginResourcePolicy: false }));

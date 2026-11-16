@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { startServer } from '../src/server.js';
 
-async function createTestApi(t) {
+async function createTestApi(t, storage) {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'excellium-express-'));
-  const { server } = await startServer({ port: 0, host: '127.0.0.1', storePath: join(temporaryDirectory, 'store.json') });
+  const { server } = await startServer({ port: 0, host: '127.0.0.1', storePath: join(temporaryDirectory, 'store.json'), storage });
   const address = server.address();
   t.after(async () => {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -35,6 +35,7 @@ async function signIn(baseUrl, email, role) {
   assert.equal(response.status, 200);
   return response.headers.get('set-cookie').split(';')[0];
 }
+
 
 test('protects role-based API access and persists invoice approvals', async (t) => {
   const baseUrl = await createTestApi(t);

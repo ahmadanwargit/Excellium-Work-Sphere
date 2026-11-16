@@ -4,14 +4,15 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { JsonStore } from './data/json-store.js';
 import { SessionService } from './services/session.service.js';
+import { StorageService } from './services/storage.service.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 const dataFile = join(moduleDirectory, '..', 'data', 'store.json');
 const clientDistPath = join(moduleDirectory, '..', '..', 'client', 'dist');
 
-export async function startServer({ port = env.port, host = '0.0.0.0', storePath = dataFile } = {}) {
+export async function startServer({ port = env.port, host = '0.0.0.0', storePath = dataFile, storage = StorageService.fromEnvironment() } = {}) {
   const store = await new JsonStore(storePath).initialise();
-  const app = createApp({ store, sessions: new SessionService(), clientDistPath });
+  const app = createApp({ store, sessions: new SessionService(), storage, clientDistPath });
 
   return new Promise((resolve) => {
     const server = app.listen(port, host, () => {

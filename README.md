@@ -9,7 +9,8 @@ A production-style monorepo for the Excellium Global Services workspace. The vis
 | Frontend | React 18, Vite, Tailwind CSS, Lucide icons |
 | Backend | Express 4, Zod validation, Helmet, CORS, rate limiting |
 | Authentication | HttpOnly SameSite session cookie, Node `scrypt` password hashing |
-| Local persistence | Atomic JSON adapter behind a data-store interface |
+| Local records | Atomic JSON adapter behind a data-store interface |
+| File storage | Private Supabase Storage bucket via server-only credentials |
 | Tooling | npm workspaces, ESLint, Node test runner, Concurrently, Nodemon |
 
 ## Project structure
@@ -105,9 +106,9 @@ npm run lint    # Client ESLint and server syntax checks
 
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`
 - Attendance: clock-in/out, breaks, activity events, corrections, team status
-- Invoices: scoped listing, submission, management approval/rejection
+- Invoices: scoped listing, multipart submission, management approval/rejection, signed document URLs
 - Meetings: scoped listing and scheduling
-- Equipment: assets, requests, and management approvals
+- Equipment: assets, multipart requests, management approvals, and signed attachment URLs
 - Workspace: dashboard, directory, reports, notifications, profile, organization settings, audit log
 
 All routes validate request data with Zod. Protected routes enforce role-based access on the server—not only in the React UI.
@@ -135,8 +136,34 @@ NODE_ENV=development
 PORT=4000
 CLIENT_ORIGIN=http://localhost:5173
 SESSION_TTL_HOURS=8
+
+# Keep this server-only. Never expose it as a VITE_ variable.
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_replace_with_your_secret_key
+SUPABASE_STORAGE_BUCKET=excellium-uploads
+SUPABASE_UPLOAD_MAX_BYTES=10485760
+SUPABASE_SIGNED_URL_TTL_SECONDS=300
 ```
+
+## Supabase Storage setup
+
+1. In Supabase, open the intended project and go to **Storage**.
+2. Create a **private** bucket named `excellium-uploads` (or choose another name and set `SUPABASE_STORAGE_BUCKET` to it).
+3. Open **Settings → API** and copy the **Project URL** into `SUPABASE_URL`.
+4. Create or copy a **secret/server key** and set it as `SUPABASE_SECRET_KEY`. Legacy projects may instead use `SUPABASE_SERVICE_ROLE_KEY`; the server accepts either name.
+5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server.
+
+The application never sends the secret key to React. Express validates uploads in memory, stores valid files in the private bucket under an owner-scoped path, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+
+| Upload | Accepted format | Default maximum |
+| --- | --- | --- |
+| Invoice document | PDF | 10 MB |
+| Equipment attachment | PNG, JPEG, WebP | 10 MB |
+
+`SUPABASE_UPLOAD_MAX_BYTES` and `SUPABASE_SIGNED_URL_TTL_SECONDS` can be adjusted as needed. A file upload without Supabase variables configured is rejected with a clear `503` response; non-file demo workflows continue to work locally.
+
+> The connected Supabase integration currently exposes no accessible project in this workspace, so no bucket was created automatically. Configure the environment against your intended project using the steps above.
 
 ## Production notes
 
-The JSON data adapter is deliberately simple for a local demo. For deployment, replace it through the same store/service boundary with a transactional database, persist sessions in a secure shared session store, set HTTPS cookies, add CSRF protection, implement file storage with scanning for uploads, and add operational backups and migrations.
+The JSON record adapter is deliberately simple for a local demo. For deployment, replace it through the same store/service boundary with a transactional database, persist sessions in a secure shared session store, set HTTPS cookies, add CSRF protection, and add operational backups and migrations.
