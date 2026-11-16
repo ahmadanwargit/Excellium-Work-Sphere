@@ -1,0 +1,13 @@
+# Runtime database created from the committed seed data
+data/store.json
+data/store.json.tmp
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Node.js artifacts
+node_modules/
+coverage/
+.DS_Store
