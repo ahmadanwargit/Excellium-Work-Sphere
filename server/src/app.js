@@ -26,7 +26,7 @@ export function createApp({ store, sessions, storage, clientDistPath }) {
   app.use(cookieParser());
   if (!env.isProduction) app.use(morgan('dev'));
 
-  app.get('/api/health', (_request, response) => response.json({ ok: true, service: 'excellium-express-api', schemaVersion: store.data.schemaVersion }));
+  app.get('/api/health', (_request, response) => response.json({ ok: true, service: 'excellium-express-api', schemaVersion: store.data.schemaVersion, persistence: env.persistenceProvider, storageConfigured: storage.enabled }));
   app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: 'draft-7', legacyHeaders: false }), createAuthRouter());
   app.use('/api/attendance', createAttendanceRouter());
   app.use('/api/invoices', createInvoicesRouter());

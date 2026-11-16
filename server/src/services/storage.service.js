@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env.js';
+import { createSupabaseServerClient, hasSupabaseConfiguration } from './supabase-client.service.js';
 import { createId } from '../utils/ids.js';
 import { HttpError, notFound } from '../utils/http-error.js';
 
@@ -53,9 +53,9 @@ export class StorageService {
   }
 
   static fromEnvironment() {
-    const enabled = Boolean(env.supabaseUrl && env.supabaseSecretKey);
+    const enabled = hasSupabaseConfiguration();
     return new StorageService({
-      client: enabled ? createClient(env.supabaseUrl, env.supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } }) : null,
+      client: enabled ? createSupabaseServerClient() : null,
       bucket: env.supabaseBucket,
       maxBytes: env.uploadMaxBytes,
       signedUrlTtlSeconds: env.signedUrlTtlSeconds,

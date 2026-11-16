@@ -5,11 +5,18 @@ function numberFromEnvironment(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function persistenceProviderFromEnvironment() {
+  if (process.env.PERSISTENCE_PROVIDER) return process.env.PERSISTENCE_PROVIDER.trim().toLowerCase();
+  return process.env.SUPABASE_URL && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) ? 'supabase' : 'json';
+}
+
 export const env = Object.freeze({
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: numberFromEnvironment('PORT', 4000),
   clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
   sessionTtlMs: numberFromEnvironment('SESSION_TTL_HOURS', 8) * 60 * 60 * 1000,
+  persistenceProvider: persistenceProviderFromEnvironment(),
+  supabaseStateTable: (process.env.SUPABASE_STATE_TABLE ?? 'excellium_portal_state').trim(),
   supabaseUrl: process.env.SUPABASE_URL?.trim() || null,
   // SUPABASE_SECRET_KEY is the preferred modern name. SERVICE_ROLE_KEY is
   // accepted for projects that still use Supabase's legacy key terminology.
