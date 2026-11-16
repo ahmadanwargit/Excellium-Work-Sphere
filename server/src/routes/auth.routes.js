@@ -1,0 +1,42 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { env } from '../config/env.js';
+import { sessionCookieOptions, SESSION_COOKIE } from '../middleware/auth.middleware.js';
+import { validate } from '../middleware/validate.middleware.js';
+import { verifyPassword } from '../services/auth.service.js';
+import { publicUser } from '../services/records.service.js';
+import { HttpError } from '../utils/http-error.js';
+
+const loginSchema = z.object({
+  email: z.string().trim().email().max(254),
+  password: z.string().min(1).max(500),
+  role: z.enum(['employee', 'trainer', 'manager', 'admin']).optional()
+});
+
+export function createAuthRouter() {
+  const router = Router();
+
+  router.post('/login', validate(loginSchema), (request, response, next) => {
+    try {
+      const { email, password, role } = request.validated;
+      const user = request.app.locals.store.data.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
+      if (!user || !verifyPassword(password, user)) throw new HttpError(401, 'Incorrect email or password');
+      if (role && role !== user.role) throw new HttpError(403, 'This email does not belong to the selected role');
+
+      const { token, expiresAt } = request.app.locals.sessions.create(user.id);
+      response
+        .cookie(SESSION_COOKIE, token, { ...sessionCookieOptions(), maxAge: env.sessionTtlMs })
+        .status(200)
+        .json({ user: publicUser(user), expiresAt: new Date(expiresAt).toISOString() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/logout', (request, response) => {
+    request.app.locals.sessions.destroy(request.cookies[SESSION_COOKIE]);
+    response.clearCookie(SESSION_COOKIE, sessionCookieOptions()).status(204).end();
+  });
+
+  return router;
+}

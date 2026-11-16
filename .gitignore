@@ -1,13 +1,23 @@
-# Runtime database created from the committed seed data
+# Packages and build artifacts
+node_modules/
+client/node_modules/
+server/node_modules/
+client/dist/
+coverage/
+
+# Runtime JSON store (created from the committed seed)
 data/store.json
 data/store.json.tmp
+server/data/store.json
+server/data/store.json.tmp
 
-# Local environment files
+# Local configuration
 .env
 .env.*
 !.env.example
+client/.env.local
+server/.env.local
 
-# Node.js artifacts
-node_modules/
-coverage/
+# Editor / OS
 .DS_Store
+.vscode/
