@@ -48,5 +48,5 @@ export default function App() {
     settings: <SettingsPage user={portal.user} actions={portal} onError={showToast} />
   };
 
-  return <><AppShell user={portal.user} page={page} onPageChange={setPage} notifications={portal.data.notifications} onLogout={handleLogout}>{content[page] ?? content.dashboard}</AppShell><Toast message={toast} /></>;
+  return <><AppShell user={portal.user} page={page} onPageChange={setPage} notifications={portal.data.notifications} sessionState={portal.data.attendance?.currentSession?.state} onLogout={handleLogout}>{content[page] ?? content.dashboard}</AppShell><Toast message={toast} /></>;
 }

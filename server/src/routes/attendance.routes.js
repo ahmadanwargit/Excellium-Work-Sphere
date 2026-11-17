@@ -1,10 +1,24 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { requireAuthentication, requireManagement } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
-import { addAuditEntry, addNotification, findUser, formatAttendance } from '../services/records.service.js';
+import {
+  closeWorkSession,
+  currentActivitySession,
+  endWorkBreak,
+  ensureWorkSessionCollections,
+  openWorkSession,
+  recordActivityHeartbeat,
+  startWorkBreak
+} from '../services/activity.service.js';
+import { addAuditEntry, formatAttendance } from '../services/records.service.js';
 import { createId, currentDateKey, currentIso } from '../utils/ids.js';
-import { conflict, HttpError } from '../utils/http-error.js';
+import { conflict } from '../utils/http-error.js';
+
+const breakStartSchema = z.object({
+  minutes: z.number().int().refine((value) => [5, 15].includes(value), 'Break must be 5 or 15 minutes')
+});
 
 const breakSchema = z.object({
   action: z.enum(['start', 'end']).default('start'),
@@ -13,9 +27,10 @@ const breakSchema = z.object({
   if (value.action === 'start' && !value.minutes) context.addIssue({ code: 'custom', message: 'Break minutes are required' });
 });
 
+// Legacy endpoint compatibility. New browser tracking uses /api/activity/heartbeat.
 const activitySchema = z.object({
-  activeSeconds: z.number().min(0).max(60).default(0),
-  idleSeconds: z.number().min(0).max(60).default(0)
+  activeSeconds: z.number().min(0).max(180).default(0),
+  idleSeconds: z.number().min(0).max(180).default(0)
 });
 
 const correctionSchema = z.object({
@@ -33,23 +48,60 @@ function clockInStatus(data, clockIn) {
   return time.getUTCHours() > hours || (time.getUTCHours() === hours && time.getUTCMinutes() > minutes + 5) ? 'Late' : 'On time';
 }
 
-function minutesBetween(start, end) {
-  return Math.max(0, Math.round((new Date(end) - new Date(start)) / 60_000));
+function updateAttendanceBreak(attendance, session, activeBreak) {
+  attendance.breakMinutes = Math.round((session.breakSeconds || 0) / 60);
+  attendance.breakStartedAt = activeBreak?.startedAt ?? null;
+  attendance.breakEndsAt = activeBreak?.expectedEndsAt ?? null;
+}
+
+function sessionForResponse(data, userId) {
+  return currentActivitySession(data, userId);
 }
 
 function summary(data, user) {
+  ensureWorkSessionCollections(data);
   const records = data.attendance
     .filter((record) => record.userId === user.id)
     .sort((left, right) => right.date.localeCompare(left.date));
+  const current = currentRecord(data, user.id);
 
   return {
-    current: currentRecord(data, user.id) ? formatAttendance(data, currentRecord(data, user.id)) : null,
+    current: current ? formatAttendance(data, current) : null,
+    currentSession: sessionForResponse(data, user.id),
     records: records.map((record) => formatAttendance(data, record)),
     totals: {
       totalActiveSeconds: records.reduce((sum, record) => sum + (record.activeSeconds || 0), 0),
       lateArrivals: records.filter((record) => record.status === 'Late').length
+    },
+    activityConfig: {
+      idleAfterSeconds: env.activityIdleMinutes * 60,
+      heartbeatEverySeconds: env.activityHeartbeatSeconds
     }
   };
+}
+
+async function updateWorkBreak(request, response, next, { action, minutes }) {
+  try {
+    let attendance;
+    let session;
+    let breakLog;
+    await request.app.locals.store.mutate((data) => {
+      ensureWorkSessionCollections(data);
+      attendance = currentRecord(data, request.auth.user.id);
+      if (!attendance) throw conflict('You must be clocked in before updating a break');
+      const at = currentIso();
+      if (action === 'start') {
+        ({ session, breakLog } = startWorkBreak(data, request.auth.user.id, minutes, { at }));
+        updateAttendanceBreak(attendance, session, breakLog);
+      } else {
+        ({ session, breakLog } = endWorkBreak(data, request.auth.user.id, { at }));
+        updateAttendanceBreak(attendance, session, null);
+      }
+    });
+    response.json({ attendance: formatAttendance(request.app.locals.store.data, attendance), session, break: breakLog });
+  } catch (error) {
+    next(error);
+  }
 }
 
 export function createAttendanceRouter() {
@@ -75,9 +127,12 @@ export function createAttendanceRouter() {
   router.post('/clock-in', async (request, response, next) => {
     try {
       let attendance;
+      let session;
       await request.app.locals.store.mutate((data) => {
+        ensureWorkSessionCollections(data);
         if (currentRecord(data, request.auth.user.id)) throw conflict('You are already clocked in');
         const clockIn = currentIso();
+        session = openWorkSession(data, request.auth.user.id, { at: clockIn });
         attendance = data.attendance.find((record) => record.userId === request.auth.user.id && record.date === currentDateKey());
         if (attendance) {
           Object.assign(attendance, { clockIn, clockOut: null, breakMinutes: 0, breakStartedAt: null, breakEndsAt: null, activeSeconds: 0, idleSeconds: 0, status: clockInStatus(data, clockIn) });
@@ -85,9 +140,8 @@ export function createAttendanceRouter() {
           attendance = { id: createId('att'), userId: request.auth.user.id, date: currentDateKey(), clockIn, clockOut: null, breakMinutes: 0, breakStartedAt: null, breakEndsAt: null, activeSeconds: 0, idleSeconds: 0, status: clockInStatus(data, clockIn) };
           data.attendance.unshift(attendance);
         }
-        addAuditEntry(data, request.auth.user.id, 'Clocked in');
       });
-      response.status(201).json({ attendance: formatAttendance(request.app.locals.store.data, attendance) });
+      response.status(201).json({ attendance: formatAttendance(request.app.locals.store.data, attendance), session });
     } catch (error) {
       next(error);
     }
@@ -96,52 +150,49 @@ export function createAttendanceRouter() {
   router.post('/clock-out', async (request, response, next) => {
     try {
       let attendance;
+      let session;
       await request.app.locals.store.mutate((data) => {
+        ensureWorkSessionCollections(data);
         attendance = currentRecord(data, request.auth.user.id);
         if (!attendance) throw conflict('You must be clocked in before clocking out');
-        if (attendance.breakStartedAt) attendance.breakMinutes += minutesBetween(attendance.breakStartedAt, currentIso());
-        Object.assign(attendance, { clockOut: currentIso(), breakStartedAt: null, breakEndsAt: null });
-        addAuditEntry(data, request.auth.user.id, 'Clocked out');
+        const at = currentIso();
+        session = closeWorkSession(data, request.auth.user.id, { at });
+        Object.assign(attendance, {
+          clockOut: at,
+          breakMinutes: Math.round((session.breakSeconds || 0) / 60),
+          breakStartedAt: null,
+          breakEndsAt: null,
+          activeSeconds: session.activeSeconds,
+          idleSeconds: session.idleSeconds
+        });
       });
-      response.json({ attendance: formatAttendance(request.app.locals.store.data, attendance) });
+      response.json({ attendance: formatAttendance(request.app.locals.store.data, attendance), session });
     } catch (error) {
       next(error);
     }
   });
 
-  router.post('/break', validate(breakSchema), async (request, response, next) => {
-    try {
-      let attendance;
-      await request.app.locals.store.mutate((data) => {
-        attendance = currentRecord(data, request.auth.user.id);
-        if (!attendance) throw conflict('You must be clocked in before starting a break');
-        if (request.validated.action === 'start') {
-          if (attendance.breakStartedAt) throw conflict('A break is already in progress');
-          attendance.breakStartedAt = currentIso();
-          attendance.breakEndsAt = new Date(Date.now() + request.validated.minutes * 60_000).toISOString();
-          addAuditEntry(data, request.auth.user.id, `Started a ${request.validated.minutes}-minute break`);
-        } else {
-          if (!attendance.breakStartedAt) throw conflict('No break is in progress');
-          attendance.breakMinutes += minutesBetween(attendance.breakStartedAt, currentIso());
-          attendance.breakStartedAt = null;
-          attendance.breakEndsAt = null;
-          addAuditEntry(data, request.auth.user.id, 'Ended a break');
-        }
-      });
-      response.json({ attendance: formatAttendance(request.app.locals.store.data, attendance) });
-    } catch (error) {
-      next(error);
-    }
-  });
+  // Explicit start/end routes are the public API; /break is retained for the
+  // already-shipped UI and maps to the same state-machine transition.
+  router.post('/break/start', validate(breakStartSchema), (request, response, next) => updateWorkBreak(request, response, next, { action: 'start', minutes: request.validated.minutes }));
+  router.post('/break/end', (request, response, next) => updateWorkBreak(request, response, next, { action: 'end' }));
+  router.post('/break', validate(breakSchema), (request, response, next) => updateWorkBreak(request, response, next, request.validated));
 
   router.post('/activity', validate(activitySchema), async (request, response, next) => {
     try {
       let attendance;
       await request.app.locals.store.mutate((data) => {
+        ensureWorkSessionCollections(data);
         attendance = currentRecord(data, request.auth.user.id);
         if (!attendance) throw conflict('You must be clocked in before sending activity');
-        attendance.activeSeconds = (attendance.activeSeconds || 0) + request.validated.activeSeconds;
-        attendance.idleSeconds = (attendance.idleSeconds || 0) + request.validated.idleSeconds;
+        const state = request.validated.idleSeconds > request.validated.activeSeconds ? 'IDLE' : 'ACTIVE';
+        recordActivityHeartbeat(data, request.auth.user.id, {
+          state,
+          durationSeconds: Math.max(request.validated.activeSeconds, request.validated.idleSeconds),
+          mouseClicks: 0,
+          keypresses: 0,
+          coordinates: []
+        });
       });
       response.json({ attendance: formatAttendance(request.app.locals.store.data, attendance) });
     } catch (error) {
@@ -155,8 +206,7 @@ export function createAttendanceRouter() {
       await request.app.locals.store.mutate((data) => {
         correction = { id: createId('cor'), userId: request.auth.user.id, ...request.validated, status: 'Pending', createdAt: currentIso() };
         data.attendanceCorrections.unshift(correction);
-        addNotification(data, { audience: ['manager', 'admin'], message: `${request.auth.user.name} requested an attendance correction for ${correction.date}` });
-        addAuditEntry(data, request.auth.user.id, `Submitted attendance correction for ${correction.date}`);
+        addAuditEntry(data, request.auth.user.id, `Submitted attendance correction for ${correction.date}`, { subjectUserId: request.auth.user.id, eventType: 'ATTENDANCE_CORRECTION' });
       });
       response.status(201).json({ correction });
     } catch (error) {
