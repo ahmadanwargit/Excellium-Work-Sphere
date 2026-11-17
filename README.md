@@ -83,6 +83,25 @@ NODE_ENV=production npm start
 # http://localhost:4000
 ```
 
+## Deploy to Vercel
+
+Import the **repository root**, not the `client/` directory. The committed `vercel.json` configures the Vite build (`npm ci`, `npm run build`, output `client/dist`), a Node function at `api/index.js` for `/api/*`, and a fallback to `index.html` for frontend routes. All browser API calls remain same-origin; no separately hosted backend or localhost URL is needed.
+
+Before deploying:
+
+1. Apply all migrations listed below, including `202611170001_create_shared_auth_sessions.sql`.
+2. Set these **server-only** Vercel environment variables for the environments you deploy:
+   - `PERSISTENCE_PROVIDER=supabase`
+   - `SUPABASE_URL` and either `SUPABASE_SECRET_KEY` or legacy `SUPABASE_SERVICE_ROLE_KEY` (mark the key **Sensitive**)
+   - `SUPABASE_STORAGE_BUCKET=excellium-uploads`
+   - `CLIENT_ORIGIN=https://<your-production-domain>`
+3. Choose the intended source branch in Vercel. For ongoing production deployments, also select that branch under **Project Settings → Environments → Production → Branch Tracking**. A one-off production deployment from another branch does not change this setting.
+4. Deploy, then check `/api/health`, sign-in, authenticated requests, and sign-out.
+
+The Vercel handler never opens a listening port or writes a JSON store to the read-only filesystem. Every invocation loads a fresh Supabase workspace snapshot. Sessions are shared in the RLS-protected `excellium_auth_sessions` table, so sign-in survives cold starts and sign-out revokes the session across instances. Only SHA-256 token hashes are stored. Secure HttpOnly cookies are used in production; no Supabase key belongs in a `VITE_` variable or in Git.
+
+The default authentication rate limit is per function instance. For higher-traffic deployments, use a distributed rate-limit store and periodically remove expired rows from `excellium_auth_sessions` through a reviewed database maintenance job. Vercel's function request-size limit also applies to multipart uploads even if `SUPABASE_UPLOAD_MAX_BYTES` is configured higher.
+
 ## Demo accounts
 
 All demo accounts use password **`password123`**.
@@ -174,9 +193,10 @@ SUPABASE_SIGNED_URL_TTL_SECONDS=300
    - `supabase/migrations/202611160005_close_stale_work_sessions.sql`
    - `supabase/migrations/202611160006_allow_multiple_daily_work_sessions.sql`
    - `supabase/migrations/202611160007_add_access_group_organization.sql`
+   - `supabase/migrations/202611170001_create_shared_auth_sessions.sql`
 5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server.
 
-The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The sixth permits a legitimate second work session after an employee clocks out on the same day. The seventh adds a generated Employee/Management access-group column and index. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in category- and owner-scoped private paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The sixth permits a legitimate second work session after an employee clocks out on the same day. The seventh adds a generated Employee/Management access-group column and index. The eighth adds shared, server-only authentication sessions for independent Vercel instances. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in category- and owner-scoped private paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
 
 | Upload | Accepted format | Default maximum |
 | --- | --- | --- |
@@ -189,4 +209,4 @@ The first migration creates the locked-down, normalized Postgres tables that per
 
 ## Production notes
 
-The application persists operational data in normalized Supabase Postgres tables while keeping the existing domain API stable. For a larger deployment, add a shared session store, HTTPS cookies, CSRF protection, database backup/restore drills, and automated migration deployment.
+The application persists operational data and shared authentication sessions in Supabase Postgres while keeping the existing domain API stable. Production uses Secure HttpOnly cookies. For a larger deployment, add distributed rate limiting, CSRF protection, database backup/restore drills, and automated migration deployment. Replace the documented demo credentials before using the portal for real employee data.

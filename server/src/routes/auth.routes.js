@@ -19,14 +19,14 @@ const loginSchema = z.object({
 export function createAuthRouter() {
   const router = Router();
 
-  router.post('/login', validate(loginSchema), (request, response, next) => {
+  router.post('/login', validate(loginSchema), async (request, response, next) => {
     try {
       const { email, password, accessGroup } = request.validated;
       const user = request.app.locals.store.data.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
       if (!user || !verifyPassword(password, user)) throw new HttpError(401, 'Incorrect email or password');
       if (!hasAccessGroup(user, accessGroup)) throw new HttpError(403, 'This email does not belong to the selected sign-in group');
 
-      const { token, expiresAt } = request.app.locals.sessions.create(user.id);
+      const { token, expiresAt } = await request.app.locals.sessions.create(user.id);
       response
         .cookie(SESSION_COOKIE, token, { ...sessionCookieOptions(), maxAge: env.sessionTtlMs })
         .status(200)
@@ -36,9 +36,13 @@ export function createAuthRouter() {
     }
   });
 
-  router.post('/logout', (request, response) => {
-    request.app.locals.sessions.destroy(request.cookies[SESSION_COOKIE]);
-    response.clearCookie(SESSION_COOKIE, sessionCookieOptions()).status(204).end();
+  router.post('/logout', async (request, response, next) => {
+    try {
+      await request.app.locals.sessions.destroy(request.cookies[SESSION_COOKIE]);
+      response.clearCookie(SESSION_COOKIE, sessionCookieOptions()).status(204).end();
+    } catch (error) {
+      next(error);
+    }
   });
 
   return router;

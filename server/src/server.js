@@ -5,6 +5,7 @@ import { env } from './config/env.js';
 import { JsonStore } from './data/json-store.js';
 import { SupabaseRelationalStore } from './data/supabase-relational-store.js';
 import { SessionService } from './services/session.service.js';
+import { SupabaseSessionService } from './services/supabase-session.service.js';
 import { StorageService } from './services/storage.service.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +25,8 @@ async function createStore({ storePath, store }) {
 
 export async function startServer({ port = env.port, host = '0.0.0.0', storePath = dataFile, store, storage = StorageService.fromEnvironment() } = {}) {
   const persistentStore = await createStore({ storePath, store });
-  const app = createApp({ store: persistentStore, sessions: new SessionService(), storage, clientDistPath });
+  const sessions = env.persistenceProvider === 'supabase' ? new SupabaseSessionService() : new SessionService();
+  const app = createApp({ store: persistentStore, sessions, storage, clientDistPath });
 
   return new Promise((resolve) => {
     const server = app.listen(port, host, () => {

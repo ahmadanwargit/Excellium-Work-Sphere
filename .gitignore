@@ -11,6 +11,9 @@ data/store.json.tmp
 server/data/store.json
 server/data/store.json.tmp
 
+# Vercel local project metadata and build output
+.vercel/
+
 # Local configuration
 .env
 .env.*
