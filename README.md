@@ -117,7 +117,7 @@ All routes validate request data with Zod. Protected routes enforce role-based a
 
 ## Workspace persistence
 
-With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users, attendance clock events and breaks, invoice amounts/statuses, meeting participants, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds the existing demo workspace into these tables; subsequent actions update the relevant typed rows.
+With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users, attendance clock events and breaks, invoice amounts/statuses, meeting participants, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds an empty schema with the demo workspace; subsequent actions update the relevant typed rows. An existing legacy JSONB workspace is upgraded into these typed tables by the third migration before the server starts.
 
 `PERSISTENCE_PROVIDER=json` remains available only as a local/test fallback. It writes `server/data/store.json`, which is ignored by Git.
 
@@ -154,9 +154,10 @@ SUPABASE_SIGNED_URL_TTL_SECONDS=300
 4. In the Supabase **SQL Editor**, run these repository migrations in order:
    - `supabase/migrations/202611160001_create_excellium_workspace_schema.sql`
    - `supabase/migrations/202611160002_create_private_upload_bucket.sql`
+   - `supabase/migrations/202611160003_migrate_legacy_jsonb_workspace.sql`
 5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server.
 
-The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
 
 | Upload | Accepted format | Default maximum |
 | --- | --- | --- |
@@ -165,7 +166,7 @@ The first migration creates the locked-down, normalized Postgres tables that per
 
 `SUPABASE_UPLOAD_MAX_BYTES` and `SUPABASE_SIGNED_URL_TTL_SECONDS` can be adjusted as needed. In `PERSISTENCE_PROVIDER=supabase` mode, Express fails fast if the Supabase credentials or database migration are missing; it will not silently save work records locally.
 
-> The connected Supabase integration currently exposes no accessible project in this workspace, so migrations and bucket creation could not be applied automatically. Run the two migration files against your intended project using the steps above.
+> The migration files are idempotent where practical, but production deployments should run them through your normal reviewed migration pipeline rather than making manual schema changes.
 
 ## Production notes
 
