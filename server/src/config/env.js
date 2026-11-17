@@ -16,7 +16,6 @@ export const env = Object.freeze({
   clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
   sessionTtlMs: numberFromEnvironment('SESSION_TTL_HOURS', 8) * 60 * 60 * 1000,
   persistenceProvider: persistenceProviderFromEnvironment(),
-  supabaseStateTable: (process.env.SUPABASE_STATE_TABLE ?? 'excellium_portal_state').trim(),
   supabaseUrl: process.env.SUPABASE_URL?.trim() || null,
   // SUPABASE_SECRET_KEY is the preferred modern name. SERVICE_ROLE_KEY is
   // accepted for projects that still use Supabase's legacy key terminology.

@@ -9,7 +9,7 @@ A production-style monorepo for the Excellium Global Services workspace. The vis
 | Frontend | React 18, Vite, Tailwind CSS, Lucide icons |
 | Backend | Express 4, Zod validation, Helmet, CORS, rate limiting |
 | Authentication | HttpOnly SameSite session cookie, Node `scrypt` password hashing |
-| Workspace persistence | Versioned Supabase Postgres JSONB state document via server-only credentials |
+| Workspace persistence | Normalized Supabase Postgres tables with typed entity columns |
 | File storage | Private Supabase Storage bucket via server-only credentials |
 | Local/test fallback | Atomic JSON adapter behind the same data-store interface |
 | Tooling | npm workspaces, ESLint, Node test runner, Concurrently, Nodemon |
@@ -36,7 +36,7 @@ A production-style monorepo for the Excellium Global Services workspace. The vis
 │   │   ├── services/               # Sessions, auth, formatters, records
 │   │   └── utils/                  # IDs and HTTP errors
 │   └── test/                       # Isolated backend integration tests
-├── supabase/migrations/            # Postgres state table + private bucket SQL
+├── supabase/migrations/            # Normalized Postgres schema + private bucket SQL
 ├── package.json                    # Workspace scripts
 └── package-lock.json
 ```
@@ -117,7 +117,7 @@ All routes validate request data with Zod. Protected routes enforce role-based a
 
 ## Workspace persistence
 
-With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in Supabase Postgres: authentication users, attendance clock events and breaks, invoices, meetings, equipment requests, assets, notifications, profile/organization settings, and audit entries. The first connected server start seeds the existing demo workspace into the versioned `excellium_portal_state` record; subsequent actions use optimistic version checks to avoid overwriting concurrent updates.
+With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users, attendance clock events and breaks, invoice amounts/statuses, meeting participants, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds the existing demo workspace into these tables; subsequent actions update the relevant typed rows.
 
 `PERSISTENCE_PROVIDER=json` remains available only as a local/test fallback. It writes `server/data/store.json`, which is ignored by Git.
 
@@ -137,7 +137,6 @@ SESSION_TTL_HOURS=8
 
 # Use Supabase Postgres for all workspace records.
 PERSISTENCE_PROVIDER=supabase
-SUPABASE_STATE_TABLE=excellium_portal_state
 
 # Keep this server-only. Never expose it as a VITE_ variable.
 SUPABASE_URL=https://your-project-ref.supabase.co
@@ -153,11 +152,11 @@ SUPABASE_SIGNED_URL_TTL_SECONDS=300
 2. Copy the **Project URL** into `SUPABASE_URL`.
 3. Create or copy a **secret/server key** and set it as `SUPABASE_SECRET_KEY`. Legacy projects may instead use `SUPABASE_SERVICE_ROLE_KEY`; the server accepts either name.
 4. In the Supabase **SQL Editor**, run these repository migrations in order:
-   - `supabase/migrations/202611160001_create_excellium_portal_state.sql`
+   - `supabase/migrations/202611160001_create_excellium_workspace_schema.sql`
    - `supabase/migrations/202611160002_create_private_upload_bucket.sql`
 5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server.
 
-The first migration creates the locked-down Postgres record that persists every portal workflow. The second creates the private `excellium-uploads` bucket. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
 
 | Upload | Accepted format | Default maximum |
 | --- | --- | --- |
@@ -170,4 +169,4 @@ The first migration creates the locked-down Postgres record that persists every 
 
 ## Production notes
 
-The application state uses an optimistic-locking Supabase Postgres document so the existing domain API remains stable while all workflows are persisted remotely. For a larger deployment, consider decomposing the document into independently queried domain tables, persisting sessions in a secure shared store, setting HTTPS cookies, adding CSRF protection, and adding operational backups and migration automation.
+The application persists operational data in normalized Supabase Postgres tables while keeping the existing domain API stable. For a larger deployment, add a shared session store, HTTPS cookies, CSRF protection, database backup/restore drills, and automated migration deployment.

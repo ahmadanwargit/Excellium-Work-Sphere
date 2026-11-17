@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { JsonStore } from './data/json-store.js';
-import { SupabaseStateStore } from './data/supabase-state-store.js';
+import { SupabaseRelationalStore } from './data/supabase-relational-store.js';
 import { SessionService } from './services/session.service.js';
 import { StorageService } from './services/storage.service.js';
 
@@ -14,7 +14,7 @@ const clientDistPath = join(moduleDirectory, '..', '..', 'client', 'dist');
 async function createStore({ storePath, store }) {
   if (store) return store.initialise();
   if (env.persistenceProvider === 'supabase') {
-    return new SupabaseStateStore({ tableName: env.supabaseStateTable }).initialise();
+    return new SupabaseRelationalStore().initialise();
   }
   if (env.persistenceProvider !== 'json') {
     throw new Error('PERSISTENCE_PROVIDER must be either "supabase" or "json"');
