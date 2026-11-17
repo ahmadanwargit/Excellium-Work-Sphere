@@ -84,10 +84,14 @@ button:disabled { @apply cursor-not-allowed opacity-60; }
 .data-table tr:last-child td { @apply border-b-0; }
 .data-table tr:hover td { @apply bg-canvas; }
 
-.brand-logo { @apply flex items-center gap-[11px]; }
-.brand-logo svg { @apply h-[34px] w-auto flex-none; }
-.brand-logo b { @apply block font-brand text-[17px] font-bold tracking-[.02em]; color: currentColor; }
-.brand-logo small { @apply mt-1.5 block font-brand text-[8.5px] font-medium tracking-[.3em]; color: currentColor; opacity: .85; }
+.brand-logo-img { @apply block h-[38px] w-auto max-w-full; }
+.brand-logo-img-large { @apply h-[64px]; }
+.brand-logo-scheme-dark { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  .brand-logo-scheme-light { display: none; }
+  .brand-logo-scheme-dark { display: block; }
+}
 
 .sidebar { background: linear-gradient(180deg, #111820, #1b1633); }
 .sidebar-link { @apply flex items-center gap-2.5 rounded-[10px] px-2.5 py-[9px] font-medium text-[#aeb7d6] transition hover:bg-white/[.07]; }

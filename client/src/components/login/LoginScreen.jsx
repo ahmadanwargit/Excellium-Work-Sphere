@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Logo } from '../common/Logo';
 import { Button } from '../common/UI';
 import { accessGroupMeta } from '../../utils/portal';
+import officeBackground from '../../assets/office-bg.jpg';
 
 export function LoginScreen({ onLogin }) {
   const [accessGroup, setAccessGroup] = useState('employee');
@@ -23,7 +24,10 @@ export function LoginScreen({ onLogin }) {
   };
 
   return <div className="grid min-h-screen grid-cols-1 lg:grid-cols-2">
-    <aside className="hidden flex-col justify-between bg-[radial-gradient(circle_at_15%_95%,#6D3FC866,transparent_55%),radial-gradient(circle_at_90%_8%,#A78BFA2e,transparent_45%),#111820] p-14 text-[#e7eeeb] lg:flex">
+    <aside
+      className="hidden flex-col justify-between bg-[#111820] bg-cover bg-center p-14 text-[#e7eeeb] lg:flex"
+      style={{ backgroundImage: `linear-gradient(150deg, rgb(9 12 17 / .74), rgb(27 22 51 / .84)), url(${officeBackground})` }}
+    >
       <Logo large />
       <div><h1 className="m-0 max-w-[14em] text-[34px] font-semibold leading-[1.2]">One workspace for attendance, pay, performance and equipment.</h1><p className="mt-3.5 max-w-[30em] text-[#92a19a]">Choose your access category to see the tools and numbers that matter for your work.</p></div>
       <small className="text-[#92a19a]">Demo environment. Use the prefilled account and password: password123.</small>
