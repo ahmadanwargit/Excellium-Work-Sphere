@@ -1,4 +1,5 @@
 import { scryptSync } from 'node:crypto';
+import { accessGroupForRole } from '../services/access-group.service.js';
 
 const DEMO_PASSWORD = 'password123';
 
@@ -13,6 +14,7 @@ function seededUser({ id, email, name, role, title, department }) {
     email,
     name,
     role,
+    accessGroup: accessGroupForRole(role),
     title,
     department,
     passwordSalt,

@@ -27,10 +27,10 @@ async function request(baseUrl, path, { method = 'GET', body, cookie } = {}) {
   });
 }
 
-async function signIn(baseUrl, email, role) {
+async function signIn(baseUrl, email, accessGroup) {
   const response = await request(baseUrl, '/api/auth/login', {
     method: 'POST',
-    body: { email, password: 'password123', role }
+    body: { email, password: 'password123', accessGroup }
   });
   assert.equal(response.status, 200);
   return response.headers.get('set-cookie').split(';')[0];
@@ -51,7 +51,7 @@ test('protects role-based API access and persists invoice approvals', async (t) 
   assert.equal(createResponse.status, 201);
   const invoice = (await createResponse.json()).invoice;
 
-  const adminCookie = await signIn(baseUrl, 'sara@excellium.com', 'admin');
+  const adminCookie = await signIn(baseUrl, 'sara@excellium.com', 'management');
   const approvalResponse = await request(baseUrl, `/api/invoices/${invoice.id}`, {
     method: 'PATCH',
     cookie: adminCookie,
@@ -63,7 +63,7 @@ test('protects role-based API access and persists invoice approvals', async (t) 
 
 test('allows authenticated users to clock in and create an equipment request', async (t) => {
   const baseUrl = await createTestApi(t);
-  const cookie = await signIn(baseUrl, 'priya@excellium.com', 'trainer');
+  const cookie = await signIn(baseUrl, 'priya@excellium.com', 'employee');
 
   const clockIn = await request(baseUrl, '/api/attendance/clock-in', { method: 'POST', cookie, body: {} });
   assert.equal(clockIn.status, 201);

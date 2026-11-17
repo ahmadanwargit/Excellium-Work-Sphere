@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { accessGroupForRole } from './access-group.service.js';
 import { createSupabaseServerClient, hasSupabaseConfiguration } from './supabase-client.service.js';
 import { createId } from '../utils/ids.js';
 import { HttpError, notFound } from '../utils/http-error.js';
@@ -69,11 +70,16 @@ export class StorageService {
     }
   }
 
-  async upload({ file, kind, ownerId }) {
+  async upload({ file, kind, owner }) {
     this.ensureConfigured();
+    if (!owner?.id || !owner?.role) throw new HttpError(500, 'A verified upload owner is required');
     const mimeType = assertFileIsAllowed(file, kind, this.maxBytes);
     const extension = EXTENSION_BY_MIME[mimeType];
-    const objectPath = `${kind}/${ownerId}/${createId('file')}.${extension}`;
+    // The path group is derived from the authenticated user's persisted role,
+    // not from a form field. Objects remain private and still carry their owner
+    // identifier for authorization and auditability.
+    const accessGroup = accessGroupForRole(owner.role);
+    const objectPath = `${accessGroup}/${kind}/${owner.id}/${createId('file')}.${extension}`;
     const { error } = await this.client.storage.from(this.bucket).upload(objectPath, file.buffer, {
       contentType: mimeType,
       cacheControl: 'private, max-age=0',

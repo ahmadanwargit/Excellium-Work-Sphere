@@ -23,8 +23,8 @@ async function request(baseUrl, path, { method = 'GET', body, cookie } = {}) {
   });
 }
 
-async function signIn(baseUrl, email, role) {
-  const response = await request(baseUrl, '/api/auth/login', { method: 'POST', body: { email, password: 'password123', role } });
+async function signIn(baseUrl, email, accessGroup) {
+  const response = await request(baseUrl, '/api/auth/login', { method: 'POST', body: { email, password: 'password123', accessGroup } });
   assert.equal(response.status, 200);
   return response.headers.get('set-cookie').split(';')[0];
 }
@@ -63,7 +63,7 @@ test('logs breaks, ignores activity during breaks, and serves daily admin report
   const clockOut = await request(baseUrl, '/api/attendance/clock-out', { method: 'POST', cookie: employeeCookie, body: {} });
   assert.equal(clockOut.status, 200);
 
-  const adminCookie = await signIn(baseUrl, 'sara@excellium.com', 'admin');
+  const adminCookie = await signIn(baseUrl, 'sara@excellium.com', 'management');
   const date = clockIn.attendance.date;
   const reportResponse = await request(baseUrl, `/api/admin/reports/daily?date=${date}`, { cookie: adminCookie });
   assert.equal(reportResponse.status, 200);

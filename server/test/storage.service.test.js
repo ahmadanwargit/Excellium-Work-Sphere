@@ -9,7 +9,7 @@ test('detects accepted binary formats instead of trusting client MIME types', ()
   assert.equal(detectFileMimeType(Buffer.from('not-a-file')), null);
 });
 
-test('stores validated files in an owner-scoped private object path and signs access', async () => {
+test('stores validated files in private access-group and owner-scoped paths and signs access', async () => {
   const calls = [];
   const client = {
     storage: {
@@ -23,11 +23,11 @@ test('stores validated files in an owner-scoped private object path and signs ac
   const storage = new StorageService({ client, bucket: 'excellium-uploads', maxBytes: 1024, signedUrlTtlSeconds: 300, enabled: true });
   const metadata = await storage.upload({
     kind: 'invoice',
-    ownerId: 'usr_john',
+    owner: { id: 'usr_john', role: 'employee', accessGroup: 'management' },
     file: { originalname: 'october.pdf', mimetype: 'application/pdf', size: 9, buffer: Buffer.from('%PDF-1.7') }
   });
 
-  assert.match(metadata.path, /^invoice\/usr_john\/file_/);
+  assert.match(metadata.path, /^employee\/invoice\/usr_john\/file_/);
   assert.equal(metadata.mimeType, 'application/pdf');
   assert.equal(calls[0].bucket, 'excellium-uploads');
   assert.equal(calls[0].options.contentType, 'application/pdf');
@@ -35,4 +35,11 @@ test('stores validated files in an owner-scoped private object path and signs ac
   const signed = await storage.createSignedUrl(metadata);
   assert.equal(signed.url, 'https://storage.example.test/signed-url');
   assert.equal(calls[1].seconds, 300);
+
+  const managementMetadata = await storage.upload({
+    kind: 'invoice',
+    owner: { id: 'usr_sara', role: 'admin' },
+    file: { originalname: 'management.pdf', mimetype: 'application/pdf', size: 9, buffer: Buffer.from('%PDF-1.7') }
+  });
+  assert.match(managementMetadata.path, /^management\/invoice\/usr_sara\/file_/);
 });

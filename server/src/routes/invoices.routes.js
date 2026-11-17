@@ -55,7 +55,7 @@ export function createInvoicesRouter() {
         uploadedDocument = await request.app.locals.storage.upload({
           file: request.file,
           kind: 'invoice',
-          ownerId: request.auth.user.id
+          owner: request.auth.user
         });
       }
 

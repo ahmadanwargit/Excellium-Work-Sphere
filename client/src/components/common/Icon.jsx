@@ -1,6 +1,6 @@
 import {
-  Bell, BriefcaseBusiness, CalendarDays, ChartNoAxesCombined, Clock3, FileText, Gauge, LayoutDashboard,
-  Menu, MonitorCog, Settings, Trophy, UserRound, UsersRound, X
+  Bell, BriefcaseBusiness, CalendarDays, ChartNoAxesCombined, Clock3, Eye, EyeOff, FileText, Gauge,
+  LayoutDashboard, Lock, Menu, MonitorCog, Settings, ShieldCheck, Trophy, UserRound, UsersRound, X
 } from 'lucide-react';
 
 const icons = {
@@ -18,7 +18,11 @@ const icons = {
   close: X,
   work: BriefcaseBusiness,
   profile: UserRound,
-  gauge: Gauge
+  gauge: Gauge,
+  shield: ShieldCheck,
+  lock: Lock,
+  eye: Eye,
+  eyeOff: EyeOff
 };
 
 export function Icon({ name, size = 17, className = '' }) {

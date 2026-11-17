@@ -9,8 +9,9 @@ function storageDouble() {
   const uploaded = [];
   return {
     uploaded,
-    async upload({ file, kind, ownerId }) {
-      const fileMetadata = { bucket: 'excellium-uploads', path: `${kind}/${ownerId}/test-upload.pdf`, originalName: file.originalname, mimeType: 'application/pdf', size: file.size, uploadedAt: new Date().toISOString() };
+    async upload({ file, kind, owner }) {
+      const accessGroup = ['manager', 'admin'].includes(owner.role) ? 'management' : 'employee';
+      const fileMetadata = { bucket: 'excellium-uploads', path: `${accessGroup}/${kind}/${owner.id}/test-upload.pdf`, originalName: file.originalname, mimeType: 'application/pdf', size: file.size, uploadedAt: new Date().toISOString() };
       uploaded.push(fileMetadata);
       return fileMetadata;
     },
@@ -33,7 +34,7 @@ async function createApi(t) {
 async function login(baseUrl) {
   const response = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'john@excellium.com', password: 'password123', role: 'employee' })
+    body: JSON.stringify({ email: 'john@excellium.com', password: 'password123', accessGroup: 'employee' })
   });
   assert.equal(response.status, 200);
   return response.headers.get('set-cookie').split(';')[0];
@@ -53,6 +54,7 @@ test('uploads an invoice PDF through Express and returns an owner-authorized sig
   const invoice = (await uploadResponse.json()).invoice;
   assert.equal(invoice.document.originalName, 'invoice.pdf');
   assert.equal(storage.uploaded.length, 1);
+  assert.match(storage.uploaded[0].path, /^employee\/invoice\/usr_john\//);
 
   const signedResponse = await fetch(`${baseUrl}/api/invoices/${invoice.id}/document`, { headers: { cookie } });
   assert.equal(signedResponse.status, 200);

@@ -87,14 +87,12 @@ NODE_ENV=production npm start
 
 All demo accounts use password **`password123`**.
 
-| Role | Email |
+| Sign-in category | Demo accounts |
 | --- | --- |
-| Employee | `john@excellium.com` |
-| Trainer | `priya@excellium.com` |
-| Management | `daniel@excellium.com` |
-| Finance / Admin | `sara@excellium.com` |
+| Employee / Trainer | `john@excellium.com` (Employee), `priya@excellium.com` (Trainer) |
+| Admin / Management | `daniel@excellium.com` (Management), `sara@excellium.com` (Finance / Admin) |
 
-The selected role must match the email address used to sign in.
+The selected sign-in category must match the email address used to sign in. The UI intentionally offers only these two choices.
 
 ## Quality checks
 
@@ -115,9 +113,15 @@ npm run lint    # Client ESLint and server syntax checks
 
 All routes validate request data with Zod. Protected routes enforce role-based access on the server—not only in the React UI.
 
+### Two-category sign-in and authorization
+
+Sign-in accepts exactly one access category: `employee` for Employees and Trainers, or `management` for Managers and Admins. Express derives that category from the authenticated account's stored internal role; selecting **Admin / Management** never upgrades an Employee or Trainer. The returned user includes the category for presentation, while the internal `employee`, `trainer`, `manager`, and `admin` roles remain the server-side authorization source for scoped records, management reports, and administrator-only settings.
+
+The normalized `excellium_users.access_group` generated column provides a queryable Employee/Management organization area without duplicating user records or treating database tables as folders. New private objects are similarly segregated under `employee/{invoice|equipment}/{ownerId}/…` or `management/{invoice|equipment}/{ownerId}/…`. Buckets remain private; Express still validates files, checks ownership/management authorization, and issues the only five-minute signed URLs.
+
 ## Workspace persistence
 
-With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users, attendance, work sessions, break logs, activity heartbeats, coordinate samples, review flags, invoices, meetings, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds an empty schema with the demo workspace; subsequent actions update the relevant typed rows. An existing legacy JSONB workspace is upgraded into these typed tables by the third migration before the server starts.
+With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users (including a generated access group), attendance, work sessions, break logs, activity heartbeats, coordinate samples, review flags, invoices, meetings, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds an empty schema with the demo workspace; subsequent actions update the relevant typed rows. An existing legacy JSONB workspace is upgraded into these typed tables by the third migration before the server starts.
 
 `PERSISTENCE_PROVIDER=json` remains available only as a local/test fallback. It writes `server/data/store.json`, which is ignored by Git.
 
@@ -169,9 +173,10 @@ SUPABASE_SIGNED_URL_TTL_SECONDS=300
    - `supabase/migrations/202611160004_create_activity_tracking_schema.sql`
    - `supabase/migrations/202611160005_close_stale_work_sessions.sql`
    - `supabase/migrations/202611160006_allow_multiple_daily_work_sessions.sql`
+   - `supabase/migrations/202611160007_add_access_group_organization.sql`
 5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server.
 
-The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The sixth permits a legitimate second work session after an employee clocks out on the same day. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The sixth permits a legitimate second work session after an employee clocks out on the same day. The seventh adds a generated Employee/Management access-group column and index. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in category- and owner-scoped private paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
 
 | Upload | Accepted format | Default maximum |
 | --- | --- | --- |

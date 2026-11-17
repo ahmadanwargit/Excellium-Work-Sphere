@@ -84,10 +84,43 @@ button:disabled { @apply cursor-not-allowed opacity-60; }
 .data-table tr:last-child td { @apply border-b-0; }
 .data-table tr:hover td { @apply bg-canvas; }
 
-.brand-logo { @apply flex items-center gap-[11px]; }
-.brand-logo svg { @apply h-[34px] w-auto flex-none; }
-.brand-logo b { @apply block font-brand text-[17px] font-bold tracking-[.02em]; color: currentColor; }
-.brand-logo small { @apply mt-1.5 block font-brand text-[8.5px] font-medium tracking-[.3em]; color: currentColor; opacity: .85; }
+.brand-logo-img { @apply block h-[38px] w-auto max-w-full; }
+.brand-logo-img-large { @apply h-[64px]; }
+.brand-logo-scheme-dark { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  .brand-logo-scheme-light { display: none; }
+  .brand-logo-scheme-dark { display: block; }
+}
+
+/* ---- Login screen (matches portal design: dark purple shades over office photo) ---- */
+.login-page {
+  background-color: #0b0812;
+  background-image:
+    radial-gradient(75% 60% at 80% 6%, rgb(124 58 237 / .16), transparent 62%),
+    linear-gradient(102deg, rgb(10 7 18 / .985) 0%, rgb(13 9 24 / .94) 32%, rgb(23 14 46 / .80) 62%, rgb(12 8 22 / .66) 100%),
+    var(--login-bg-image);
+  background-size: cover;
+  background-position: center;
+}
+
+.login-label { @apply mb-1.5 mt-4 block text-xs font-medium text-[#9a92b3]; }
+
+.login-input {
+  @apply w-full rounded-xl border border-[#2b2440] bg-[#0c0915] px-4 py-3 text-[15px] text-[#ece9f7] outline-none transition;
+}
+.login-input::placeholder { color: #5f5878; }
+.login-input:focus { @apply border-[#8b5cf6]; box-shadow: 0 0 0 3px rgb(139 92 246 / .16); }
+
+.login-submit {
+  background: linear-gradient(90deg, #8b5cf6, #a78bfa 55%, #c4b5fd);
+  color: #1c1340;
+  box-shadow: 0 10px 26px -10px rgb(139 92 246 / .65);
+  transition: filter .15s ease, transform .15s ease;
+}
+.login-submit:hover:not(:disabled) { filter: brightness(1.08); }
+.login-submit:active:not(:disabled) { transform: translateY(1px); }
+.login-submit:disabled { @apply cursor-not-allowed opacity-60; }
 
 .sidebar { background: linear-gradient(180deg, #111820, #1b1633); }
 .sidebar-link { @apply flex items-center gap-2.5 rounded-[10px] px-2.5 py-[9px] font-medium text-[#aeb7d6] transition hover:bg-white/[.07]; }
