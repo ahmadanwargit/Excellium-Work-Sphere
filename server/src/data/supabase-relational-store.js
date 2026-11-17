@@ -157,7 +157,7 @@ export function hydrateWorkspace(rows) {
 }
 
 export class SupabaseRelationalStore {
-  constructor({ client = createSupabaseServerClient() }) {
+  constructor({ client = createSupabaseServerClient() } = {}) {
     this.client = client;
     this.data = null;
     this.version = 0;

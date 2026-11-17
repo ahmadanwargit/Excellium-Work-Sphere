@@ -52,6 +52,14 @@ function relationalClientDouble() {
   };
 }
 
+test('supports the default no-options construction used by server startup', () => {
+  assert.throws(
+    () => new SupabaseRelationalStore(),
+    /Supabase is not configured/,
+    'the constructor should reach the configuration guard rather than destructuring undefined options'
+  );
+});
+
 test('serializes workspace state into normalized Supabase table rows without a JSON dump', () => {
   const seed = createSeed();
   const rows = serializeWorkspace(seed);
