@@ -168,9 +168,10 @@ SUPABASE_SIGNED_URL_TTL_SECONDS=300
    - `supabase/migrations/202611160003_migrate_legacy_jsonb_workspace.sql`
    - `supabase/migrations/202611160004_create_activity_tracking_schema.sql`
    - `supabase/migrations/202611160005_close_stale_work_sessions.sql`
+   - `supabase/migrations/202611160006_allow_multiple_daily_work_sessions.sql`
 5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server.
 
-The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The sixth permits a legitimate second work session after an employee clocks out on the same day. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
 
 | Upload | Accepted format | Default maximum |
 | --- | --- | --- |

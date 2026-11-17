@@ -35,6 +35,13 @@ test('work sessions transition through active, break, active, and clocked-out st
   const closed = closeWorkSession(data, 'usr_john', { at: '2026-11-16T17:00:00.000Z' });
   assert.equal(closed.state, SESSION_STATES.CLOCKED_OUT);
   assert.equal(closed.clockOut, '2026-11-16T17:00:00.000Z');
+
+  // A later shift on the same date is a separate session. The persistence
+  // schema must therefore not constrain (user_id, work_date) as unique.
+  const laterSession = openWorkSession(data, 'usr_john', { at: '2026-11-16T18:00:00.000Z' });
+  assert.notEqual(laterSession.id, closed.id);
+  assert.equal(laterSession.workDate, closed.workDate);
+  assert.equal(laterSession.state, SESSION_STATES.ACTIVE);
 });
 
 test('jiggler detection flags repetitive loops, fixed pixel nudges, and motion without direct input', () => {
