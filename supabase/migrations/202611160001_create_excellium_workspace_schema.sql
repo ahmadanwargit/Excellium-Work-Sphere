@@ -19,6 +19,11 @@ create table if not exists public.excellium_users (
   email text not null unique,
   name text not null,
   role text not null check (role in ('employee', 'trainer', 'manager', 'admin')),
+  -- The login/storage category is generated from the authoritative internal
+  -- role, so it cannot be promoted by a client supplied value.
+  access_group text generated always as (
+    case when role in ('employee', 'trainer') then 'employee' else 'management' end
+  ) stored,
   title text not null,
   department text not null,
   password_salt text not null,

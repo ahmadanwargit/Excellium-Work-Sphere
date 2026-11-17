@@ -66,6 +66,7 @@ test('serializes workspace state into normalized Supabase table rows without a J
 
   assert.equal(rows.settings.company_name, 'Excellium Global Services');
   assert.equal(rows.users[0].password_hash.length, 128);
+  assert.equal('access_group' in rows.users[0], false, 'the database computes its generated category');
   assert.equal(rows.attendance[0].user_id, 'usr_john');
   assert.equal(rows.attendance[0].work_date, '2026-11-13');
   assert.equal(rows.invoices[0].employee_id, 'usr_john');
@@ -102,6 +103,7 @@ test('hydrates the current application domain shape from normalized rows', () =>
   });
 
   assert.equal(hydrated.organization.name, seed.organization.name);
+  assert.equal(hydrated.users.find((user) => user.id === 'usr_john').accessGroup, 'employee');
   assert.equal(hydrated.attendance[0].userId, seed.attendance[0].userId);
   assert.equal(hydrated.invoices[0].amount, seed.invoices[0].amount);
   assert.deepEqual(hydrated.meetings.find((meeting) => meeting.id === 'mtg_101').participants, seed.meetings.find((meeting) => meeting.id === 'mtg_101').participants);

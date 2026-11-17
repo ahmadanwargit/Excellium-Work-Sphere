@@ -1,4 +1,5 @@
 import { createId, currentIso } from '../utils/ids.js';
+import { userAccessGroup } from './access-group.service.js';
 
 export function isManager(user) {
   return user.role === 'manager' || user.role === 'admin';
@@ -15,7 +16,7 @@ export function findUser(data, userId) {
 export function publicUser(user) {
   if (!user) return null;
   const { passwordHash, passwordSalt, ...safeUser } = user;
-  return safeUser;
+  return { ...safeUser, accessGroup: userAccessGroup(user) };
 }
 
 export function addNotification(data, { userId = null, audience = [], message }) {

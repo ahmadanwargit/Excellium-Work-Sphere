@@ -63,7 +63,7 @@ export function createEquipmentRouter() {
         uploadedAttachment = await request.app.locals.storage.upload({
           file: request.file,
           kind: 'equipment',
-          ownerId: request.auth.user.id
+          owner: request.auth.user
         });
       }
 

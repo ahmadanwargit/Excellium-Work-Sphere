@@ -5,6 +5,13 @@ export const roleMeta = {
   admin: { label: 'Finance / Admin', name: 'Sara Malik', title: 'Finance and Admin', description: 'Payroll, assets, system', email: 'sara@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'rankings', 'meetings', 'equipment', 'directory', 'reports'] }
 };
 
+// Sign-in deliberately exposes only these broad access categories. The API
+// returns the underlying role after authentication for fine-grained features.
+export const accessGroupMeta = {
+  employee: { label: 'Employee / Trainer', description: 'Your attendance, tasks and personal records', email: 'john@excellium.com' },
+  management: { label: 'Admin / Management', description: 'Organization progress, invoices and management data', email: 'daniel@excellium.com' }
+};
+
 export const pageTitles = {
   dashboard: 'Dashboard',
   attendance: 'Attendance',

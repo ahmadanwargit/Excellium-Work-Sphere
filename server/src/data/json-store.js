@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createSeed } from './seed.js';
 import { ensureWorkSessionCollections } from '../services/activity.service.js';
+import { ensureAccessGroups } from '../services/access-group.service.js';
 
 /**
  * Small transactional JSON adapter for the demo. Its public contract keeps
@@ -21,6 +22,7 @@ export class JsonStore {
     if (!existsSync(this.filePath)) {
       this.data = createSeed();
       ensureWorkSessionCollections(this.data);
+      ensureAccessGroups(this.data);
       await this.save();
       return this;
     }
@@ -29,6 +31,7 @@ export class JsonStore {
       this.data = JSON.parse(await readFile(this.filePath, 'utf8'));
       if (this.data?.schemaVersion !== 1) throw new Error('unsupported schema version');
       ensureWorkSessionCollections(this.data);
+      ensureAccessGroups(this.data);
     } catch (error) {
       throw new Error(`Unable to load local data store: ${error.message}`);
     }

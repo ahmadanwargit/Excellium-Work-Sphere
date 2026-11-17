@@ -1,4 +1,5 @@
 import { createSeed } from './seed.js';
+import { accessGroupForRole } from '../services/access-group.service.js';
 import { createSupabaseServerClient } from '../services/supabase-client.service.js';
 import { HttpError } from '../utils/http-error.js';
 
@@ -153,7 +154,7 @@ export function hydrateWorkspace(rows) {
       inactivityLockMinutes: asNumber(settings.inactivity_lock_minutes)
     },
     users: rows.users.map((user) => ({
-      id: user.id, email: user.email, name: user.name, role: user.role, title: user.title, department: user.department,
+      id: user.id, email: user.email, name: user.name, role: user.role, accessGroup: user.access_group ?? accessGroupForRole(user.role), title: user.title, department: user.department,
       passwordSalt: user.password_salt, passwordHash: user.password_hash, createdAt: user.created_at
     })),
     attendance: rows.attendance.map((record) => ({
