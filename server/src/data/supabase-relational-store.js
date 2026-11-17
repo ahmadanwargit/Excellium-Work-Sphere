@@ -8,6 +8,11 @@ const TABLE = {
   users: 'excellium_users',
   attendance: 'excellium_attendance',
   corrections: 'excellium_attendance_corrections',
+  workSessions: 'excellium_work_sessions',
+  breakLogs: 'excellium_break_logs',
+  heartbeats: 'excellium_activity_heartbeats',
+  samples: 'excellium_activity_samples',
+  flags: 'excellium_activity_flags',
   invoices: 'excellium_invoices',
   meetings: 'excellium_meetings',
   participants: 'excellium_meeting_participants',
@@ -60,6 +65,11 @@ function resultData(result, label) {
   return result.data ?? [];
 }
 
+function changedRows(previousRows, nextRows) {
+  const previousById = new Map((previousRows ?? []).map((row) => [row.id, JSON.stringify(row)]));
+  return (nextRows ?? []).filter((row) => previousById.get(row.id) !== JSON.stringify(row));
+}
+
 /** Converts the in-memory domain model into explicit relational table rows. */
 export function serializeWorkspace(data) {
   return {
@@ -83,6 +93,26 @@ export function serializeWorkspace(data) {
     corrections: data.attendanceCorrections.map((item) => ({
       id: item.id, user_id: item.userId, work_date: item.date, reason: item.reason, status: item.status, created_at: item.createdAt
     })),
+    workSessions: (data.workSessions ?? []).map((session) => ({
+      id: session.id, user_id: session.userId, work_date: session.workDate, clock_in: session.clockIn, clock_out: nullable(session.clockOut), state: session.state,
+      active_seconds: session.activeSeconds ?? 0, idle_seconds: session.idleSeconds ?? 0, break_seconds: session.breakSeconds ?? 0,
+      suspicious_flag_count: session.suspiciousFlagCount ?? 0, created_at: session.createdAt, updated_at: session.updatedAt
+    })),
+    breakLogs: (data.breakLogs ?? []).map((item) => ({
+      id: item.id, session_id: item.sessionId, user_id: item.userId, work_date: item.workDate, duration_minutes: item.durationMinutes,
+      started_at: item.startedAt, expected_ends_at: item.expectedEndsAt, ended_at: nullable(item.endedAt), actual_seconds: item.actualSeconds ?? 0,
+      overage_seconds: item.overageSeconds ?? 0, status: item.status
+    })),
+    heartbeats: (data.activityHeartbeats ?? []).map((item) => ({
+      id: item.id, session_id: item.sessionId, user_id: item.userId, recorded_at: item.recordedAt, state: item.state, duration_seconds: item.durationSeconds ?? 0,
+      mouse_clicks: item.mouseClicks ?? 0, keypresses: item.keypresses ?? 0, page_hidden: Boolean(item.pageHidden)
+    })),
+    samples: (data.activitySamples ?? []).map((item) => ({
+      id: item.id, heartbeat_id: item.heartbeatId, session_id: item.sessionId, user_id: item.userId, x: item.x, y: item.y, event_at: item.eventAt, event_type: item.eventType
+    })),
+    flags: (data.activityFlags ?? []).map((item) => ({
+      id: item.id, session_id: item.sessionId, user_id: item.userId, work_date: item.workDate, kind: item.kind, detected_at: item.detectedAt
+    })),
     invoices: data.invoices.map((invoice) => ({
       id: invoice.id, employee_id: invoice.employeeId, invoice_month: invoice.month, amount: invoice.amount, status: invoice.status,
       payment_details: invoice.paymentDetails ?? '', ...fileColumns('document', invoice.document), submitted_at: invoice.submittedAt,
@@ -100,7 +130,10 @@ export function serializeWorkspace(data) {
     notifications: data.notifications.map((notification) => ({ id: notification.id, user_id: nullable(notification.userId), message: notification.message, created_at: notification.createdAt })),
     audiences: data.notifications.flatMap((notification) => notification.audience.map((role) => ({ notification_id: notification.id, role }))),
     reads: data.notifications.flatMap((notification) => notification.readBy.map((userId) => ({ notification_id: notification.id, user_id: userId }))),
-    audit: data.auditLog.map((entry) => ({ id: entry.id, occurred_at: entry.timestamp, actor_id: nullable(entry.actorId), action: entry.action }))
+    audit: data.auditLog.map((entry) => ({
+      id: entry.id, occurred_at: entry.timestamp, actor_id: nullable(entry.actorId), subject_user_id: nullable(entry.subjectUserId),
+      session_id: nullable(entry.sessionId), break_log_id: nullable(entry.breakLogId), event_type: entry.eventType ?? 'GENERAL', action: entry.action
+    }))
   };
 }
 
@@ -131,6 +164,26 @@ export function hydrateWorkspace(rows) {
     attendanceCorrections: rows.corrections.map((item) => ({
       id: item.id, userId: item.user_id, date: item.work_date, reason: item.reason, status: item.status, createdAt: item.created_at
     })),
+    workSessions: (rows.workSessions ?? []).map((session) => ({
+      id: session.id, userId: session.user_id, workDate: session.work_date, clockIn: session.clock_in, clockOut: session.clock_out, state: session.state,
+      activeSeconds: asNumber(session.active_seconds), idleSeconds: asNumber(session.idle_seconds), breakSeconds: asNumber(session.break_seconds),
+      suspiciousFlagCount: asNumber(session.suspicious_flag_count), createdAt: session.created_at, updatedAt: session.updated_at
+    })),
+    breakLogs: (rows.breakLogs ?? []).map((item) => ({
+      id: item.id, sessionId: item.session_id, userId: item.user_id, workDate: item.work_date, durationMinutes: asNumber(item.duration_minutes),
+      startedAt: item.started_at, expectedEndsAt: item.expected_ends_at, endedAt: item.ended_at, actualSeconds: asNumber(item.actual_seconds),
+      overageSeconds: asNumber(item.overage_seconds), status: item.status
+    })),
+    activityHeartbeats: (rows.heartbeats ?? []).map((item) => ({
+      id: item.id, sessionId: item.session_id, userId: item.user_id, recordedAt: item.recorded_at, state: item.state,
+      durationSeconds: asNumber(item.duration_seconds), mouseClicks: asNumber(item.mouse_clicks), keypresses: asNumber(item.keypresses), pageHidden: item.page_hidden
+    })),
+    activitySamples: (rows.samples ?? []).map((item) => ({
+      id: item.id, heartbeatId: item.heartbeat_id, sessionId: item.session_id, userId: item.user_id, x: asNumber(item.x), y: asNumber(item.y), eventAt: item.event_at, eventType: item.event_type
+    })),
+    activityFlags: (rows.flags ?? []).map((item) => ({
+      id: item.id, sessionId: item.session_id, userId: item.user_id, workDate: item.work_date, kind: item.kind, detectedAt: item.detected_at
+    })),
     invoices: rows.invoices.map((invoice) => ({
       id: invoice.id, employeeId: invoice.employee_id, month: invoice.invoice_month, amount: asNumber(invoice.amount), status: invoice.status,
       paymentDetails: invoice.payment_details, documentName: invoice.document_original_name, document: fileFromColumns('document', invoice),
@@ -152,7 +205,10 @@ export function hydrateWorkspace(rows) {
       audience: (audiencesByNotification.get(notification.id) ?? []).map((item) => item.role),
       readBy: (readsByNotification.get(notification.id) ?? []).map((item) => item.user_id)
     })),
-    auditLog: rows.audit.map((entry) => ({ id: entry.id, timestamp: entry.occurred_at, actorId: entry.actor_id, action: entry.action }))
+    auditLog: rows.audit.map((entry) => ({
+      id: entry.id, timestamp: entry.occurred_at, actorId: entry.actor_id, subjectUserId: entry.subject_user_id ?? entry.actor_id,
+      sessionId: entry.session_id, breakLogId: entry.break_log_id, eventType: entry.event_type ?? 'GENERAL', action: entry.action
+    }))
   };
 }
 
@@ -181,19 +237,23 @@ export class SupabaseRelationalStore {
   }
 
   async loadWorkspace(settings) {
-    const [users, attendance, corrections, invoices, meetings, participants, equipmentRequests, assets, notifications, audiences, reads, audit] = await Promise.all([
+    const [users, attendance, corrections, workSessions, breakLogs, heartbeats, samples, flags, invoices, meetings, participants, equipmentRequests, assets, notifications, audiences, reads, audit] = await Promise.all([
       this.client.from(TABLE.users).select('*'), this.client.from(TABLE.attendance).select('*'), this.client.from(TABLE.corrections).select('*'),
-      this.client.from(TABLE.invoices).select('*'), this.client.from(TABLE.meetings).select('*'), this.client.from(TABLE.participants).select('*'),
-      this.client.from(TABLE.requests).select('*'), this.client.from(TABLE.assets).select('*'), this.client.from(TABLE.notifications).select('*'),
-      this.client.from(TABLE.audiences).select('*'), this.client.from(TABLE.reads).select('*'), this.client.from(TABLE.audit).select('*')
+      this.client.from(TABLE.workSessions).select('*'), this.client.from(TABLE.breakLogs).select('*'), this.client.from(TABLE.heartbeats).select('*'),
+      this.client.from(TABLE.samples).select('*'), this.client.from(TABLE.flags).select('*'), this.client.from(TABLE.invoices).select('*'),
+      this.client.from(TABLE.meetings).select('*'), this.client.from(TABLE.participants).select('*'), this.client.from(TABLE.requests).select('*'),
+      this.client.from(TABLE.assets).select('*'), this.client.from(TABLE.notifications).select('*'), this.client.from(TABLE.audiences).select('*'),
+      this.client.from(TABLE.reads).select('*'), this.client.from(TABLE.audit).select('*')
     ]);
 
     return hydrateWorkspace({
       settings,
       users: resultData(users, 'users'), attendance: resultData(attendance, 'attendance'), corrections: resultData(corrections, 'attendance corrections'),
-      invoices: resultData(invoices, 'invoices'), meetings: resultData(meetings, 'meetings'), participants: resultData(participants, 'meeting participants'),
-      equipmentRequests: resultData(equipmentRequests, 'equipment requests'), assets: resultData(assets, 'assets'), notifications: resultData(notifications, 'notifications'),
-      audiences: resultData(audiences, 'notification audiences'), reads: resultData(reads, 'notification reads'), audit: resultData(audit, 'audit log')
+      workSessions: resultData(workSessions, 'work sessions'), breakLogs: resultData(breakLogs, 'break logs'), heartbeats: resultData(heartbeats, 'activity heartbeats'),
+      samples: resultData(samples, 'activity samples'), flags: resultData(flags, 'activity flags'), invoices: resultData(invoices, 'invoices'),
+      meetings: resultData(meetings, 'meetings'), participants: resultData(participants, 'meeting participants'), equipmentRequests: resultData(equipmentRequests, 'equipment requests'),
+      assets: resultData(assets, 'assets'), notifications: resultData(notifications, 'notifications'), audiences: resultData(audiences, 'notification audiences'),
+      reads: resultData(reads, 'notification reads'), audit: resultData(audit, 'audit log')
     });
   }
 
@@ -214,36 +274,69 @@ export class SupabaseRelationalStore {
     await this.assertVersion(expectedVersion);
     const rows = serializeWorkspace(this.data);
 
-    // Users are inserted first because all operational tables reference them.
+    // Parent entities are saved first so every foreign key remains valid.
     await this.upsert(TABLE.users, rows.users);
+    await this.upsert(TABLE.workSessions, rows.workSessions);
     await Promise.all([
       this.upsert(TABLE.attendance, rows.attendance), this.upsert(TABLE.corrections, rows.corrections), this.upsert(TABLE.invoices, rows.invoices),
       this.upsert(TABLE.meetings, rows.meetings), this.upsert(TABLE.requests, rows.equipmentRequests), this.upsert(TABLE.assets, rows.assets),
-      this.upsert(TABLE.notifications, rows.notifications), this.upsert(TABLE.audit, rows.audit)
+      this.upsert(TABLE.notifications, rows.notifications), this.upsert(TABLE.breakLogs, rows.breakLogs), this.upsert(TABLE.flags, rows.flags)
     ]);
+    await this.upsert(TABLE.heartbeats, rows.heartbeats);
     await Promise.all([
+      this.upsert(TABLE.samples, rows.samples), this.upsert(TABLE.audit, rows.audit),
       this.upsert(TABLE.participants, rows.participants, 'meeting_id,user_id'), this.upsert(TABLE.audiences, rows.audiences, 'notification_id,role'),
       this.upsert(TABLE.reads, rows.reads, 'notification_id,user_id')
     ]);
 
-    const settingsPayload = { ...rows.settings, version: nextVersion };
+    await this.persistSettingsVersion(rows.settings, { expectedVersion, nextVersion });
+  }
+
+  async persistSettingsVersion(settings, { expectedVersion, nextVersion }) {
+    const settingsPayload = { ...settings, version: nextVersion };
     if (expectedVersion === 0) {
       const { error } = await this.client.from(TABLE.settings).insert(settingsPayload);
       if (error?.code === '23505') {
         throw new HttpError(409, 'Workspace data was initialized elsewhere. Restart the server to load it.');
       }
       if (error) throw new Error(`Unable to initialize Supabase workspace settings: ${error.message}`);
-    } else {
-      const { data, error } = await this.client
-        .from(TABLE.settings)
-        .update(settingsPayload)
-        .eq('id', SETTINGS_ID)
-        .eq('version', expectedVersion)
-        .select('version')
-        .maybeSingle();
-      if (error) throw new Error(`Unable to persist Supabase workspace settings: ${error.message}`);
-      if (!data) throw new HttpError(409, 'Workspace data changed elsewhere. Please retry your action.');
+      return;
     }
+
+    const { data, error } = await this.client
+      .from(TABLE.settings)
+      .update(settingsPayload)
+      .eq('id', SETTINGS_ID)
+      .eq('version', expectedVersion)
+      .select('version')
+      .maybeSingle();
+    if (error) throw new Error(`Unable to persist Supabase workspace settings: ${error.message}`);
+    if (!data) throw new HttpError(409, 'Workspace data changed elsewhere. Please retry your action.');
+  }
+
+  async persistActivityChanges(snapshot, { expectedVersion, nextVersion }) {
+    await this.assertVersion(expectedVersion);
+    const previous = serializeWorkspace(snapshot);
+    const current = serializeWorkspace(this.data);
+    const workSessions = changedRows(previous.workSessions, current.workSessions);
+    const attendance = changedRows(previous.attendance, current.attendance);
+    const breakLogs = changedRows(previous.breakLogs, current.breakLogs);
+    const flags = changedRows(previous.flags, current.flags);
+    const heartbeats = changedRows(previous.heartbeats, current.heartbeats);
+    const samples = changedRows(previous.samples, current.samples);
+    const audit = changedRows(previous.audit, current.audit);
+
+    // Heartbeats are frequent. Persist only the typed rows touched by this
+    // heartbeat instead of repeatedly upserting the complete workspace.
+    await this.upsert(TABLE.workSessions, workSessions);
+    await Promise.all([
+      this.upsert(TABLE.attendance, attendance), this.upsert(TABLE.breakLogs, breakLogs), this.upsert(TABLE.flags, flags)
+    ]);
+    await this.upsert(TABLE.heartbeats, heartbeats);
+    await Promise.all([
+      this.upsert(TABLE.samples, samples), this.upsert(TABLE.audit, audit)
+    ]);
+    await this.persistSettingsVersion(current.settings, { expectedVersion, nextVersion });
   }
 
   async mutate(callback) {
@@ -252,6 +345,21 @@ export class SupabaseRelationalStore {
     try {
       const result = callback(this.data);
       await this.persistAll({ expectedVersion: version, nextVersion: version + 1 });
+      this.version += 1;
+      return result;
+    } catch (error) {
+      this.data = snapshot;
+      this.version = version;
+      throw error;
+    }
+  }
+
+  async mutateActivity(callback) {
+    const snapshot = clone(this.data);
+    const version = this.version;
+    try {
+      const result = callback(this.data);
+      await this.persistActivityChanges(snapshot, { expectedVersion: version, nextVersion: version + 1 });
       this.version += 1;
       return result;
     } catch (error) {

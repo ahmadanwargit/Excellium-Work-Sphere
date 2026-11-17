@@ -62,6 +62,13 @@ export function createSeed() {
       { id: 'att_1010', userId: 'usr_tom', date: '2026-11-16', clockIn: '2026-11-16T08:58:00.000Z', clockOut: null, breakMinutes: 0, status: 'Present', activeSeconds: 20880, idleSeconds: 900 }
     ],
     attendanceCorrections: [],
+    // Activity-tracking data is intentionally stored as separate, typed
+    // collections. It is never folded into a whole-workspace state document.
+    workSessions: [],
+    breakLogs: [],
+    activityHeartbeats: [],
+    activitySamples: [],
+    activityFlags: [],
     invoices: [
       { id: 'INV-1042', employeeId: 'usr_john', month: 'October 2026', amount: 4200, status: 'Approved', paymentDetails: 'Payroll transfer', documentName: null, submittedAt: '2026-10-28T08:00:00.000Z', decidedAt: '2026-10-29T10:42:00.000Z', decidedBy: 'usr_sara' },
       { id: 'INV-1031', employeeId: 'usr_john', month: 'September 2026', amount: 4200, status: 'Approved', paymentDetails: 'Payroll transfer', documentName: null, submittedAt: '2026-09-27T08:00:00.000Z', decidedAt: '2026-09-28T11:20:00.000Z', decidedBy: 'usr_sara' },

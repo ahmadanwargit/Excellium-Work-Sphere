@@ -15,6 +15,10 @@ export const env = Object.freeze({
   port: numberFromEnvironment('PORT', 4000),
   clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
   sessionTtlMs: numberFromEnvironment('SESSION_TTL_HOURS', 8) * 60 * 60 * 1000,
+  // Activity settings are exposed to the authenticated frontend through the
+  // attendance summary; the browser never receives any Supabase credentials.
+  activityIdleMinutes: numberFromEnvironment('ACTIVITY_IDLE_MINUTES', 5),
+  activityHeartbeatSeconds: numberFromEnvironment('ACTIVITY_HEARTBEAT_SECONDS', 30),
   persistenceProvider: persistenceProviderFromEnvironment(),
   supabaseUrl: process.env.SUPABASE_URL?.trim() || null,
   // SUPABASE_SECRET_KEY is the preferred modern name. SERVICE_ROLE_KEY is

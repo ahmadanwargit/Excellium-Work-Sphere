@@ -6,6 +6,8 @@ import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
+import { createActivityRouter } from './routes/activity.routes.js';
+import { createAdminRouter } from './routes/admin.routes.js';
 import { createAttendanceRouter } from './routes/attendance.routes.js';
 import { createAuthRouter } from './routes/auth.routes.js';
 import { createEquipmentRouter } from './routes/equipment.routes.js';
@@ -29,6 +31,8 @@ export function createApp({ store, sessions, storage, clientDistPath }) {
   app.get('/api/health', (_request, response) => response.json({ ok: true, service: 'excellium-express-api', schemaVersion: store.data.schemaVersion, persistence: env.persistenceProvider, storageConfigured: storage.enabled }));
   app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: 'draft-7', legacyHeaders: false }), createAuthRouter());
   app.use('/api/attendance', createAttendanceRouter());
+  app.use('/api/activity', createActivityRouter());
+  app.use('/api/admin', createAdminRouter());
   app.use('/api/invoices', createInvoicesRouter());
   app.use('/api/meetings', createMeetingsRouter());
   app.use('/api/equipment', createEquipmentRouter());

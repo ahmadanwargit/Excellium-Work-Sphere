@@ -117,9 +117,15 @@ All routes validate request data with Zod. Protected routes enforce role-based a
 
 ## Workspace persistence
 
-With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users, attendance clock events and breaks, invoice amounts/statuses, meeting participants, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds an empty schema with the demo workspace; subsequent actions update the relevant typed rows. An existing legacy JSONB workspace is upgraded into these typed tables by the third migration before the server starts.
+With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users, attendance, work sessions, break logs, activity heartbeats, coordinate samples, review flags, invoices, meetings, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds an empty schema with the demo workspace; subsequent actions update the relevant typed rows. An existing legacy JSONB workspace is upgraded into these typed tables by the third migration before the server starts.
 
 `PERSISTENCE_PROVIDER=json` remains available only as a local/test fallback. It writes `server/data/store.json`, which is ignored by Git.
+
+## Session and activity tracking
+
+The employee control bar has four explicit states: `CLOCKED_OUT`, `ACTIVE`, `IDLE`, and `ON_BREAK`. Tracking listeners exist only while the session is active or idle. A 5- or 15-minute break immediately clears those listeners and idle timers, shows a live countdown, and resumes automatically when it reaches zero. The browser samples only trusted portal-tab events and lightweight coordinates; it does not collect typed characters, screen captures, or page content.
+
+Management can open **Reports and analytics** for the end-of-day activity table, chronological employee timeline, suspicious-pattern review count, and CSV export. Jiggler heuristics are review signals—not automatic disciplinary decisions—and cover repeated coordinate loops, fixed-interval tiny nudges, and 30 minutes of pointer motion without clicks or keypresses.
 
 ## Environment configuration
 
@@ -134,6 +140,11 @@ NODE_ENV=development
 PORT=4000
 CLIENT_ORIGIN=http://localhost:5173
 SESSION_TTL_HOURS=8
+
+# Trusted portal interaction becomes idle after this many minutes. Activity
+# heartbeats batch at this interval; neither setting enables content capture.
+ACTIVITY_IDLE_MINUTES=5
+ACTIVITY_HEARTBEAT_SECONDS=30
 
 # Use Supabase Postgres for all workspace records.
 PERSISTENCE_PROVIDER=supabase
@@ -155,9 +166,11 @@ SUPABASE_SIGNED_URL_TTL_SECONDS=300
    - `supabase/migrations/202611160001_create_excellium_workspace_schema.sql`
    - `supabase/migrations/202611160002_create_private_upload_bucket.sql`
    - `supabase/migrations/202611160003_migrate_legacy_jsonb_workspace.sql`
+   - `supabase/migrations/202611160004_create_activity_tracking_schema.sql`
+   - `supabase/migrations/202611160005_close_stale_work_sessions.sql`
 5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server.
 
-The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in owner-scoped paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
 
 | Upload | Accepted format | Default maximum |
 | --- | --- | --- |

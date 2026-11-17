@@ -47,7 +47,29 @@ export function usePortal() {
     user, data, loading, login, logout, refresh,
     clockIn: () => execute('/api/attendance/clock-in', { method: 'POST', body: '{}' }),
     clockOut: () => execute('/api/attendance/clock-out', { method: 'POST', body: '{}' }),
+    // Explicit break controls keep the client state machine aligned with the
+    // dedicated start/end server transitions.
+    startBreak: (durationMinutes) => execute('/api/attendance/break/start', { method: 'POST', body: JSON.stringify({ minutes: durationMinutes }) }),
+    endBreak: () => execute('/api/attendance/break/end', { method: 'POST', body: '{}' }),
     updateBreak: (payload) => execute('/api/attendance/break', { method: 'POST', body: JSON.stringify(payload) }),
+    sendActivityHeartbeat: async (payload) => {
+      const result = await apiRequest('/api/activity/heartbeat', { method: 'POST', body: JSON.stringify(payload) });
+      if (!result.ignored && result.session) {
+        setData((previous) => ({
+          ...previous,
+          attendance: previous.attendance ? {
+            ...previous.attendance,
+            currentSession: result.session,
+            current: previous.attendance.current ? {
+              ...previous.attendance.current,
+              activeSeconds: result.session.activeSeconds,
+              idleSeconds: result.session.idleSeconds
+            } : previous.attendance.current
+          } : previous.attendance
+        }));
+      }
+      return result;
+    },
     createCorrection: (payload) => execute('/api/attendance/corrections', { method: 'POST', body: JSON.stringify(payload) }),
     createInvoice: (payload) => execute('/api/invoices', { method: 'POST', body: requestBody(payload) }),
     decideInvoice: (id, status) => execute(`/api/invoices/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),

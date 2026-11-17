@@ -31,11 +31,15 @@ export function addNotification(data, { userId = null, audience = [], message })
   return notification;
 }
 
-export function addAuditEntry(data, actorId, action) {
+export function addAuditEntry(data, actorId, action, { subjectUserId = actorId, sessionId = null, breakLogId = null, eventType = 'GENERAL' } = {}) {
   data.auditLog.unshift({
     id: createId('aud'),
     timestamp: currentIso(),
     actorId: actorId ?? null,
+    subjectUserId: subjectUserId ?? null,
+    sessionId,
+    breakLogId,
+    eventType,
     action
   });
 }
