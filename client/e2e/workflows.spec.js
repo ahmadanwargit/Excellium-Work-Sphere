@@ -21,8 +21,8 @@ async function adminPage(browser) {
 
 test('employee prepares and edits an invoice, downloads its PDF, and management approves it', async ({ page, browser }) => {
   await signIn(page);
-  await expect(page.locator('nav').getByRole('button', { name: 'User administration' })).toHaveCount(0);
-  await navigation(page, 'Salary invoices');
+  await expect(page.locator('nav').getByRole('button', { name: 'Employee profiles' })).toHaveCount(0);
+  await navigation(page, 'My invoices');
   await page.getByRole('button', { name: 'Prepare invoice', exact: true }).click();
   await page.getByLabel('Invoice month / period').fill('December 2026');
   await page.getByLabel('Description 1', { exact: true }).fill('Portal preparation test');
@@ -51,13 +51,13 @@ test('employee prepares and edits an invoice, downloads its PDF, and management 
   await expect(row).toContainText('Pending');
   const admin = await adminPage(browser);
   try {
-    await navigation(admin.page, 'Salary invoices');
+    await navigation(admin.page, 'Invoice approvals');
     const review = admin.page.getByRole('row').filter({ hasText: invoice.id });
     await review.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(review).toContainText('Approved');
   } finally { await admin.context.close(); }
   await page.reload();
-  await navigation(page, 'Salary invoices');
+  await navigation(page, 'My invoices');
   await expect(page.getByRole('row').filter({ hasText: invoice.id })).toContainText('Approved');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Prepare invoice', exact: true }).click();
@@ -72,7 +72,7 @@ test('employee prepares and edits an invoice, downloads its PDF, and management 
 
 test('employee applies for leave; admin accepts or rejects it and the employee sees the decision', async ({ page, browser }) => {
   await signIn(page);
-  await navigation(page, 'Leave applications');
+  await navigation(page, 'My leave');
   await page.getByRole('button', { name: 'Apply for leave', exact: true }).click();
   await page.getByLabel('Start date', { exact: true }).fill('2026-12-01');
   await page.getByLabel('End date', { exact: true }).fill('2026-12-03');
@@ -83,14 +83,15 @@ test('employee applies for leave; admin accepts or rejects it and the employee s
   await expect(employeeRow).toContainText('Pending');
   const admin = await adminPage(browser);
   try {
-    await navigation(admin.page, 'Leave applications');
+    await navigation(admin.page, 'Leave approvals');
+    await admin.page.getByLabel('Filter leave status').selectOption('All');
     const row = admin.page.getByRole('row').filter({ hasText: '2026-12-01' });
     await row.getByRole('button', { name: 'Approve', exact: true }).click();
     await admin.page.getByLabel('Note to employee (optional)').fill('Approved, enjoy your time off.');
     await admin.page.getByRole('button', { name: 'Approve leave', exact: true }).click();
     await expect(row).toContainText('Approved');
     await page.reload();
-    await navigation(page, 'Leave applications');
+    await navigation(page, 'My leave');
     await expect(employeeRow).toContainText('Approved, enjoy your time off.');
     await page.getByRole('button', { name: 'Apply for leave', exact: true }).click();
     await page.getByLabel('Leave type', { exact: true }).selectOption('Casual');
@@ -100,33 +101,34 @@ test('employee applies for leave; admin accepts or rejects it and the employee s
     await page.getByRole('button', { name: 'Send application' }).click();
     await expect(page.getByRole('row').filter({ hasText: '2026-12-10' })).toContainText('Pending');
     await admin.page.reload();
-    await navigation(admin.page, 'Leave applications');
+    await navigation(admin.page, 'Leave approvals');
+    await admin.page.getByLabel('Filter leave status').selectOption('All');
     const rejected = admin.page.getByRole('row').filter({ hasText: '2026-12-10' });
     await rejected.getByRole('button', { name: 'Reject', exact: true }).click();
     await admin.page.getByLabel('Reason for rejection (required)').fill('Please arrange team coverage first.');
     await admin.page.getByRole('button', { name: 'Reject leave', exact: true }).click();
     await expect(rejected).toContainText('Rejected');
     await page.reload();
-    await navigation(page, 'Leave applications');
+    await navigation(page, 'My leave');
     await expect(page.getByRole('row').filter({ hasText: '2026-12-10' })).toContainText('Please arrange team coverage first.');
   } finally { await admin.context.close(); }
 });
 
 test('admin creates a department, role and profile; the new employee can sign into the assigned portal', async ({ page, browser }) => {
   await signIn(page, 'sara@excellium.com', true);
-  await navigation(page, 'User administration');
-  await page.getByRole('button', { name: 'Departments', exact: true }).click();
+  await navigation(page, 'Employee profiles');
+  await navigation(page, 'Departments');
   await page.getByRole('button', { name: 'Create department', exact: true }).click();
   await page.getByLabel('Department name', { exact: true }).fill('E2E Customer Success');
   await page.getByRole('dialog').getByRole('button', { name: 'Create department', exact: true }).click();
   await expect(page.getByRole('row').filter({ hasText: 'E2E Customer Success' })).toBeVisible();
-  await page.getByRole('button', { name: 'Roles', exact: true }).click();
+  await navigation(page, 'Roles & permissions');
   await page.getByRole('button', { name: 'Create role', exact: true }).click();
   await page.getByLabel('Role name', { exact: true }).fill('E2E Support Trainer');
   await page.getByLabel('Permission level', { exact: true }).selectOption('trainer');
   await page.getByRole('dialog').getByRole('button', { name: 'Create role', exact: true }).click();
   await expect(page.getByRole('row').filter({ hasText: 'E2E Support Trainer' })).toBeVisible();
-  await page.getByRole('button', { name: 'Create user portal', exact: true }).click();
+  await page.getByRole('button', { name: 'Create employee profile', exact: true }).click();
   await page.getByLabel('Full name', { exact: true }).fill('Browser Test Employee');
   await page.getByLabel('Work email', { exact: true }).fill('browser.employee@excellium.com');
   await page.getByLabel('Job title', { exact: true }).fill('Support Trainer');
@@ -135,7 +137,7 @@ test('admin creates a department, role and profile; the new employee can sign in
   await page.getByLabel('Initial password', { exact: true }).fill('BrowserTest!234');
   await page.getByRole('button', { name: 'Create portal', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Users', exact: true }).click();
+  await navigation(page, 'Employee profiles');
   const row = page.getByRole('row').filter({ hasText: 'browser.employee@excellium.com' });
   await expect(row).toContainText('E2E Support Trainer');
   await expect(row).toContainText('E2E Customer Success');
@@ -144,8 +146,8 @@ test('admin creates a department, role and profile; the new employee can sign in
   try {
     await signIn(employee, 'browser.employee@excellium.com', false, 'BrowserTest!234');
     await expect(employee.getByRole('heading', { name: 'Training overview' })).toBeVisible();
-    await expect(employee.locator('nav').getByRole('button', { name: 'User administration' })).toHaveCount(0);
-    await navigation(employee, 'Salary invoices');
+    await expect(employee.locator('nav').getByRole('button', { name: 'Employee profiles' })).toHaveCount(0);
+    await navigation(employee, 'My invoices');
     await expect(employee.getByRole('button', { name: 'Prepare invoice', exact: true })).toBeVisible();
     await row.getByRole('button', { name: 'Edit profile', exact: true }).click();
     await page.getByLabel('Job title', { exact: true }).fill('Senior Support Trainer');

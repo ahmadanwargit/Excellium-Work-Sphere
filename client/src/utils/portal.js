@@ -1,31 +1,51 @@
+import { can } from '../../../shared/access-control.mjs';
+export { can, canManagePerson, canReviewPerson, PERMISSION_LABELS, permissionsFor } from '../../../shared/access-control.mjs';
+
 export const roleMeta = {
-  employee: { label: 'Employee', name: 'John Carter', title: 'Software Engineer', description: 'Attendance, pay and tasks', email: 'john@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory'] },
-  trainer: { label: 'Trainer', name: 'Priya Nair', title: 'Lead Trainer', description: 'Cohorts and sessions', email: 'priya@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory'] },
-  manager: { label: 'Management', name: 'Daniel Okafor', title: 'Operations Manager', description: 'Team and approvals', email: 'daniel@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory', 'reports'] },
-  admin: { label: 'Finance / Admin', name: 'Sara Malik', title: 'Finance and Admin', description: 'Payroll, assets, system', email: 'sara@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory', 'reports', 'users'] }
+  employee: { label: 'Employee', description: 'Your personal workspace', email: 'john@excellium.com' },
+  trainer: { label: 'Trainer', description: 'Self-service and training sessions', email: 'priya@excellium.com' },
+  manager: { label: 'Management', description: 'Staff administration and approvals', email: 'daniel@excellium.com' },
+  admin: { label: 'Administrator', description: 'Full workforce and access administration', email: 'sara@excellium.com' }
 };
 
-// Sign-in deliberately exposes only these broad access categories. The API
-// returns the underlying role after authentication for fine-grained features.
 export const accessGroupMeta = {
-  employee: { label: 'Employee / Trainer', description: 'Your attendance, tasks and personal records', email: 'john@excellium.com' },
-  management: { label: 'Admin / Management', description: 'Organization progress, invoices and management data', email: 'daniel@excellium.com' }
+  employee: { label: 'Employee / Trainer', description: 'Your attendance, invoices, leave and training sessions', email: 'john@excellium.com' },
+  management: { label: 'Admin / Management', description: 'Staff profiles, approvals and organization operations', email: 'sara@excellium.com' }
 };
 
 export const pageTitles = {
-  dashboard: 'Dashboard',
-  attendance: 'Attendance',
-  invoices: 'Salary invoices',
-  leaves: 'Leave applications',
-  users: 'User administration',
-  rankings: 'Performance and rankings',
-  meetings: 'Meetings',
-  equipment: 'Equipment and assets',
-  directory: 'Employee directory',
-  reports: 'Reports and analytics',
-  notifications: 'Notifications',
-  settings: 'Settings'
+  dashboard: 'My overview', attendance: 'My attendance', invoices: 'My invoices', leaves: 'My leave',
+  meetings: 'My meetings', equipment: 'My equipment', directory: 'Staff directory', rankings: 'Performance and rankings',
+  users: 'Employee profiles', roles: 'Roles & permissions', departments: 'Departments', assets: 'Asset inventory',
+  reports: 'Workforce reports', organization: 'Organization settings', audit: 'Audit trail',
+  notifications: 'Notifications', settings: 'My profile'
 };
+
+export function pageTitle(page, role) {
+  if (can(role, 'manageStaff')) return ({ dashboard: role === 'admin' ? 'Admin overview' : 'Management overview', attendance: 'Team attendance', invoices: 'Invoice approvals', leaves: 'Leave approvals', meetings: 'Meeting management', equipment: 'Equipment requests' })[page] ?? pageTitles[page];
+  if (role === 'trainer' && page === 'meetings') return 'Training sessions';
+  return pageTitles[page];
+}
+
+export function navigationFor(role) {
+  const group = (label, pages) => ({ label, pages });
+  if (can(role, 'manageStaff')) return [
+    group('Overview', ['dashboard']),
+    group('People & access', ['users', ...(can(role, 'manageRoles') ? ['roles'] : []), 'departments', 'directory']),
+    group('Review & approvals', ['leaves', 'invoices', 'equipment']),
+    group('Operations', ['attendance', 'assets', 'meetings']),
+    group('Insights & administration', ['rankings', 'reports', ...(can(role, 'organization') ? ['organization', 'audit'] : [])]),
+    group('My account', ['settings', 'notifications'])
+  ];
+  return [
+    group(role === 'trainer' ? 'Trainer workspace' : 'Employee workspace', ['dashboard']),
+    group('My self-service', ['attendance', 'invoices', 'leaves', 'equipment']),
+    group(role === 'trainer' ? 'Training & workplace' : 'Workplace', ['meetings', 'rankings', 'directory']),
+    group('My account', ['settings', 'notifications'])
+  ];
+}
+
+export const allowedPages = (role) => navigationFor(role).flatMap((group) => group.pages);
 
 export const people = [
   ['John Carter', 'Engineering', 'Present', 92], ['Aisha Khan', 'Design', 'Present', 96], ['Marcus Lee', 'Engineering', 'Late', 84], ['Elena Petrova', 'Finance', 'Present', 89],

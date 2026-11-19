@@ -4,7 +4,7 @@ import { createApi } from './helpers/api.js';
 
 const leave = { type: 'Annual', startDate: '2026-12-01', endDate: '2026-12-03', reason: 'Family commitments.' };
 
-test('employees apply privately and only an administrator can approve or reject leave', async (t) => {
+test('staff apply privately and management or administrators approve or reject leave', async (t) => {
   const { request, login } = await createApi(t);
   const employee = await login();
   const colleague = await login('priya@excellium.com');
@@ -16,8 +16,8 @@ test('employees apply privately and only an administrator can approve or reject 
   assert.equal(item.days, 3);
   assert.equal(item.employeeId, 'usr_john');
   assert.equal((await (await request('/api/leaves', { cookie: colleague })).json()).leaves.length, 0);
-  assert.equal((await (await request('/api/leaves', { cookie: manager })).json()).leaves.length, 0);
-  for (const cookie of [employee, manager]) assert.equal((await request(`/api/leaves/${item.id}`, { method: 'PATCH', cookie, body: { status: 'Approved' } })).status, 403);
+  assert.equal((await (await request('/api/leaves', { cookie: manager })).json()).leaves.length, 1);
+  for (const cookie of [employee]) assert.equal((await request(`/api/leaves/${item.id}`, { method: 'PATCH', cookie, body: { status: 'Approved' } })).status, 403);
   assert.equal((await request(`/api/leaves/${item.id}`, { method: 'PATCH', cookie: admin, body: { status: 'Rejected' } })).status, 400);
   const approved = await request(`/api/leaves/${item.id}`, { method: 'PATCH', cookie: admin, body: { status: 'Approved', reviewNote: 'Enjoy your time off.' } });
   assert.equal(approved.status, 200);
@@ -34,7 +34,7 @@ test('employees apply privately and only an administrator can approve or reject 
 });
 
 test('rejects invalid dates, overlapping leave and forged ownership; lets an owner withdraw pending leave', async (t) => {
-  const { request, login } = await createApi(t);
+  const { request, login, store } = await createApi(t);
   const cookie = await login();
   const admin = await login('sara@excellium.com', 'management');
   for (const body of [
@@ -47,6 +47,8 @@ test('rejects invalid dates, overlapping leave and forged ownership; lets an own
   assert.equal((await request(`/api/leaves/${created.id}/cancel`, { method: 'POST', cookie: admin, body: {} })).status, 403);
   assert.equal((await request(`/api/leaves/${created.id}/cancel`, { method: 'POST', cookie, body: {} })).status, 200);
   assert.equal((await request('/api/leaves', { method: 'POST', cookie, body: leave })).status, 201);
-  const own = (await (await request('/api/leaves', { method: 'POST', cookie: admin, body: leave })).json()).leave;
-  assert.equal((await request(`/api/leaves/${own.id}`, { method: 'PATCH', cookie: admin, body: { status: 'Approved' } })).status, 403);
+  assert.equal((await request('/api/leaves', { method: 'POST', cookie: admin, body: leave })).status, 403);
+  // Historical admin applications remain protected against self-review.
+  await store.mutate((data) => data.leaveRequests.push({ ...data.leaveRequests[0], id: 'legacy_admin_leave', employeeId: 'usr_sara', status: 'Pending' }));
+  assert.equal((await request('/api/leaves/legacy_admin_leave', { method: 'PATCH', cookie: admin, body: { status: 'Approved' } })).status, 403);
 });

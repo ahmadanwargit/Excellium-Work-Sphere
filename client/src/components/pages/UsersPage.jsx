@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Button, DataTable, EmptyState, MetricCard, Modal, PageHeading, Panel } from '../common/UI';
 import { StatusBadge } from '../common/StatusBadge';
-import { roleMeta } from '../../utils/portal';
+import { can, permissionsFor, PERMISSION_LABELS, roleMeta } from '../../utils/portal';
 import { formErrorMessage } from '../../utils/workflows';
 
-export function UsersPage({ user, administration, actions, onError }) {
+export function UsersPage({ user, administration, actions, onError, section = 'Users' }) {
   const { users, roles, departments } = administration;
-  const [tab, setTab] = useState('Users');
+  const tab = section;
+  const canManageRoles = can(user, 'manageRoles');
   const [query, setQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -46,9 +47,8 @@ export function UsersPage({ user, administration, actions, onError }) {
   };
 
   return <>
-    <PageHeading title="User administration" description="Create employee portals, assign roles and departments, and manage profiles." action={<Button variant="primary" onClick={startCreate}>Create user portal</Button>} />
+    <PageHeading title={tab === 'Users' ? 'Employee profiles' : tab === 'Roles' ? 'Roles & permissions' : 'Departments'} description={tab === 'Users' ? (canManageRoles ? 'Create employee, trainer and management portals. Assign roles, departments and account access.' : 'Create and manage employee / trainer profiles. Privileged roles and administrator accounts are reserved for full administrators.') : tab === 'Roles' ? 'Create named role presets with an explicit, server-enforced permission level.' : 'Create departments and use them when assigning employee profiles.'} action={<Button variant="primary" onClick={startCreate}>Create employee profile</Button>} />
     <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3"><MetricCard label="Active users" value={users.filter((item) => item.active !== false).length} detail={`${users.length} total profiles`} /><MetricCard label="Roles" value={roles.length} detail="Named presets with explicit permission levels" /><MetricCard label="Departments" value={departments.length} detail="Available during profile creation" /></div>
-    <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line">{['Users', 'Roles', 'Departments'].map((value) => <button type="button" key={value} className={`tab-button ${tab === value ? 'tab-button-active' : ''}`} onClick={() => setTab(value)}>{value}</button>)}</div>
     {tab === 'Users' && <Panel title="User profiles">
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><input aria-label="Search users" className="field-control" placeholder="Search name, email or job title" value={query} onChange={(event) => setQuery(event.target.value)} /><select aria-label="Filter users by role" className="field-control" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="">All roles</option>{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select><select aria-label="Filter users by department" className="field-control" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="">All departments</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></div>
       {results.length ? <DataTable headings={['Employee', 'Role', 'Department', 'Portal access', 'Status', 'Actions']} rows={results.map((item) => ({ id: item.id, cells: [
@@ -58,13 +58,13 @@ export function UsersPage({ user, administration, actions, onError }) {
         <Button small key="edit" onClick={() => editProfile(item)}>Edit profile</Button>
       ] }))} /> : <EmptyState>No profiles match your filters.</EmptyState>}
     </Panel>}
-    {tab === 'Roles' && <Panel title="Roles and permissions" action={<Button variant="primary" onClick={() => { setError(''); setNewRole({ name: '', baseRole: 'employee', description: '' }); }}>Create role</Button>}>
-      <p className="mb-4 text-muted">Each role inherits an existing permission level. Only Finance / Admin permissions can manage users or decide leave requests.</p>
+    {canManageRoles && tab === 'Roles' && <Panel title="Roles and permissions" action={<Button variant="primary" onClick={() => { setError(''); setNewRole({ name: '', baseRole: 'employee', description: '' }); }}>Create role</Button>}>
+      <p className="mb-4 text-muted">Employees and trainers have self-service tools. Management reviews staff requests and administers employee / trainer profiles. Only administrators can assign privileged roles, create role presets, change organization settings or view the full audit trail.</p>
       <DataTable headings={['Role', 'Permission level', 'Users', 'Description']} rows={roles.map((role) => ({ id: role.id, cells: [<span key="name"><b>{role.name}</b>{role.system && <small className="block text-muted">Built-in role</small>}</span>, roleMeta[role.baseRole].label, users.filter((item) => item.roleId === role.id).length, <span key="description" className="inline-block max-w-[360px] whitespace-normal">{role.description}</span>] }))} />
     </Panel>}
     {tab === 'Departments' && <Panel title="Departments" action={<Button variant="primary" onClick={() => { setError(''); setNewDepartment(''); }}>Create department</Button>}><DataTable headings={['Department', 'Users']} rows={departments.map((department) => ({ id: department.id, cells: [department.name, users.filter((item) => item.departmentId === department.id).length] }))} /></Panel>}
 
-    {profile && <Modal wide title={profile.id ? 'Edit user profile' : 'Create user portal'} confirmLabel={profile.id ? 'Save profile' : 'Create portal'} busy={busy} onClose={() => setProfile(null)} onConfirm={saveProfile}>
+    {profile && <Modal wide title={profile.id ? 'Edit employee profile' : 'Create employee profile'} confirmLabel={profile.id ? 'Save profile' : 'Create portal'} busy={busy} onClose={() => setProfile(null)} onConfirm={saveProfile}>
       <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
         <div><label className="field-label" htmlFor="user-name">Full name</label><input id="user-name" className="field-control" required maxLength={100} autoComplete="name" value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></div>
         <div><label className="field-label" htmlFor="user-email">Work email</label><input id="user-email" className="field-control" required type="email" maxLength={254} autoComplete="off" value={profile.email} onChange={(event) => setProfile({ ...profile, email: event.target.value })} /></div>
@@ -80,10 +80,11 @@ export function UsersPage({ user, administration, actions, onError }) {
       {profile.id && <label className="mt-4 flex items-center gap-2"><input type="checkbox" checked={profile.active} disabled={profile.id === user.id} onChange={(event) => setProfile({ ...profile, active: event.target.checked })} />Account active <span className="text-xs text-muted">(inactive users cannot sign in)</span></label>}
       {error && <p role="alert" className="text-[var(--color-error)]">{error}</p>}
     </Modal>}
-    {newRole && <Modal title="Create role" confirmLabel="Create role" busy={busy} onClose={() => setNewRole(null)} onConfirm={saveRole}>
+    {canManageRoles && newRole && <Modal title="Create role" confirmLabel="Create role" busy={busy} onClose={() => setNewRole(null)} onConfirm={saveRole}>
       <label className="field-label" htmlFor="role-name">Role name</label><input id="role-name" className="field-control" required minLength={2} maxLength={80} value={newRole.name} onChange={(event) => setNewRole({ ...newRole, name: event.target.value })} />
       <label className="field-label" htmlFor="role-permissions">Permission level</label><select id="role-permissions" className="field-control" value={newRole.baseRole} onChange={(event) => setNewRole({ ...newRole, baseRole: event.target.value })}>{Object.entries(roleMeta).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select>
-      <p className="rounded-lg bg-accent-soft p-3 text-xs text-accent">{roles.find((role) => role.id === newRole.baseRole)?.description}{newRole.baseRole === 'admin' && ' This grants full user-administration and leave-approval access.'}</p>
+      <p className="rounded-lg bg-accent-soft p-3 text-xs text-accent">{roles.find((role) => role.id === newRole.baseRole)?.description}</p>
+      <ul className="space-y-1 pl-4 text-xs text-muted">{permissionsFor(newRole.baseRole).map((permission) => <li key={permission}>{PERMISSION_LABELS[permission]}</li>)}</ul>
       <label className="field-label" htmlFor="role-description">Description (optional)</label><textarea id="role-description" className="field-control" rows="3" maxLength={300} value={newRole.description} onChange={(event) => setNewRole({ ...newRole, description: event.target.value })} />
       {error && <p role="alert" className="text-[var(--color-error)]">{error}</p>}
     </Modal>}

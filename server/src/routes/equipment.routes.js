@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuthentication, requireManagement } from '../middleware/auth.middleware.js';
+import { requireAuthentication, requirePermission } from '../middleware/auth.middleware.js';
+import { canManagePerson, canReviewPerson } from '../../../shared/access-control.mjs';
+import { equipmentView } from '../services/workspace-views.service.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
-import { addAuditEntry, addNotification, formatAsset, formatEquipmentRequest, isManager } from '../services/records.service.js';
+import { addAuditEntry, addNotification, findUser, formatEquipmentRequest } from '../services/records.service.js';
 import { currentIso, nextSequenceId } from '../utils/ids.js';
 import { conflict, forbidden, notFound } from '../utils/http-error.js';
 
@@ -21,8 +23,8 @@ function findEquipmentRequest(data, requestId) {
   return equipmentRequest;
 }
 
-function canAccessEquipmentRequest(user, equipmentRequest) {
-  if (equipmentRequest.employeeId !== user.id && !isManager(user)) throw forbidden('You cannot access this equipment attachment');
+function canAccessEquipmentRequest(user, equipmentRequest, data) {
+  if (equipmentRequest.employeeId !== user.id && !canManagePerson(user, findUser(data, equipmentRequest.employeeId))) throw forbidden('You cannot access this equipment attachment');
 }
 
 export function createEquipmentRouter() {
@@ -30,25 +32,17 @@ export function createEquipmentRouter() {
   router.use(requireAuthentication);
 
   router.get('/', (request, response) => {
-    const data = request.app.locals.store.data;
-    const requests = (isManager(request.auth.user) ? data.equipmentRequests : data.equipmentRequests.filter((item) => item.employeeId === request.auth.user.id))
-      .map((item) => formatEquipmentRequest(data, item));
-    const assets = (isManager(request.auth.user) ? data.assets : data.assets.filter((item) => item.assignedTo === request.auth.user.id))
-      .map((asset) => formatAsset(data, asset));
-    response.json({ assets, requests });
+    response.json(equipmentView(request.app.locals.store.data, request.auth.user));
   });
 
   router.get('/requests', (request, response) => {
-    const data = request.app.locals.store.data;
-    const requests = (isManager(request.auth.user) ? data.equipmentRequests : data.equipmentRequests.filter((item) => item.employeeId === request.auth.user.id))
-      .map((item) => formatEquipmentRequest(data, item));
-    response.json({ requests });
+    response.json({ requests: equipmentView(request.app.locals.store.data, request.auth.user).requests });
   });
 
   router.get('/requests/:requestId/attachment', async (request, response, next) => {
     try {
       const equipmentRequest = findEquipmentRequest(request.app.locals.store.data, request.params.requestId);
-      canAccessEquipmentRequest(request.auth.user, equipmentRequest);
+      canAccessEquipmentRequest(request.auth.user, equipmentRequest, request.app.locals.store.data);
       const signed = await request.app.locals.storage.createSignedUrl(equipmentRequest.attachment);
       response.json(signed);
     } catch (error) {
@@ -56,7 +50,7 @@ export function createEquipmentRouter() {
     }
   });
 
-  router.post('/requests', upload.single('attachment'), validate(requestSchema), async (request, response, next) => {
+  router.post('/requests', requirePermission('selfService'), upload.single('attachment'), validate(requestSchema), async (request, response, next) => {
     let uploadedAttachment;
     try {
       if (request.file) {
@@ -90,11 +84,12 @@ export function createEquipmentRouter() {
     }
   });
 
-  router.patch('/requests/:requestId', requireManagement, validate(decisionSchema), async (request, response, next) => {
+  router.patch('/requests/:requestId', requirePermission('reviewEquipment'), validate(decisionSchema), async (request, response, next) => {
     try {
       let equipmentRequest;
       await request.app.locals.store.mutate((data) => {
         equipmentRequest = findEquipmentRequest(data, request.params.requestId);
+        if (!canReviewPerson(request.auth.user, findUser(data, equipmentRequest.employeeId))) throw forbidden('You cannot decide your own request or a request outside your staff scope');
         if (equipmentRequest.status !== 'Pending') throw conflict('Only pending requests can be decided');
         equipmentRequest.status = request.validated.status;
         equipmentRequest.decidedAt = currentIso();

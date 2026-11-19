@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuthentication } from '../middleware/auth.middleware.js';
+import { requireAuthentication, requirePermission } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { ensureWorkSessionCollections, recordActivityHeartbeat } from '../services/activity.service.js';
 
@@ -23,7 +23,7 @@ const heartbeatSchema = z.object({
 /** Activity is sampled, not surveilled: no key content, screenshots, or page data. */
 export function createActivityRouter() {
   const router = Router();
-  router.use(requireAuthentication);
+  router.use(requireAuthentication, requirePermission('selfService'));
 
   router.post('/heartbeat', validate(heartbeatSchema), async (request, response, next) => {
     try {

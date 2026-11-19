@@ -36,6 +36,7 @@ A production-style monorepo for the Excellium Global Services workspace. The vis
 │   │   ├── services/               # Sessions, auth, formatters, records
 │   │   └── utils/                  # IDs and HTTP errors
 │   └── test/                       # Isolated backend integration tests
+├── shared/access-control.mjs       # Shared base-role permission policy
 ├── supabase/migrations/            # Normalized Postgres schema + private bucket SQL
 ├── package.json                    # Workspace scripts
 └── package-lock.json
@@ -104,31 +105,49 @@ The default authentication rate limit is per function instance. For higher-traff
 
 ## Portal workflows
 
-The existing portal layout and unrelated attendance, activity, meetings and equipment workflows remain in place.
+The existing visual language, invoice editor/PDFs, activity tracking, directory and read-only rankings remain in place. Workspaces now have distinct role-specific navigation, dashboards and action controls.
+
+### Role-specific workspaces
+
+| Capability | Employee | Trainer | Management | Administrator |
+| --- | --- | --- | --- | --- |
+| Own attendance, leave, invoices and equipment requests | Yes | Yes | No | No |
+| Invited meetings and own profile | Yes | Yes | Yes | Yes |
+| Request training sessions | No | Yes, pending confirmation | Schedule / confirm | Schedule / confirm |
+| Review staff leave, invoices and equipment requests | No | No | Employee / trainer requests | All managed requests |
+| Create and manage profiles | No | No | Employee / trainer roles only | All roles |
+| Departments, team attendance, inventory and workforce reports | No | No | Yes | Yes |
+| Role creation, privileged assignments, organization settings and audit trail | No | No | No | Yes |
+
+Management and administrators see grouped **People & access**, **Review & approvals**, **Operations** and **Insights & administration** sidebar sections rather than employee self-service controls. Daniel's Management account can review both employee and trainer leave and can create employee profiles; Sara's Administrator account additionally has **Roles & permissions**, **Organization settings** and **Audit trail**.
+
+`shared/access-control.mjs` is the permission policy used by React navigation and Express guards. The stored base role, not a browser-selected category or custom display name, determines access. Individual record ownership/scope is also checked on the server. Managers cannot administer peers or administrators, and nobody can approve their own historical requests.
+
+`GET /api/portal` returns one role-scoped workspace snapshot. The client refreshes on navigation, focus/visibility return and every 30 seconds while visible; the shell also has **Refresh**, pending-review badges and a persistent synchronization-error notice. A newly submitted request appears in a manager's already-open queue without signing out. A stored role change replaces both the visible navigation and data on the next refresh. Privileged deep links fall back to the user's own overview. No new database migration is needed for this authorization/UI correction; the previously deployed workflow migration remains required on a fresh installation.
 
 ### Invoice preparation
 
-Employees and trainers can open **Salary invoices → Prepare invoice**, add up to 50 line items (description, quantity and unit rate), choose USD/PKR/GBP/EUR/AED, and set tax, payment details, notes and an optional due date. Totals are recalculated on the server; a submitted client total cannot override the calculation. A supporting PDF upload is optional.
+Employees and trainers can open **My invoices → Prepare invoice**, add up to 50 line items (description, quantity and unit rate), choose USD/PKR/GBP/EUR/AED, and set tax, payment details, notes and an optional due date. Totals are recalculated on the server; a submitted client total cannot override the calculation. A supporting PDF upload is optional.
 
 **Save draft** keeps the invoice private to its owner and editable. **Submit for approval** moves it to Pending; management/admin can then approve or reject it. Only the owner can edit or submit a Draft, and only Pending invoices can be decided. **View**, **PDF** and existing signed attachment access are available according to the same record permissions. PDFs are generated from saved data, including for legacy amount-only invoices.
 
 ### Leave applications
 
-Employees can open **Leave applications → Apply for leave**, choose Annual/Sick/Casual/Unpaid, select inclusive dates and enter a reason. Requests cover 1–366 calendar days; overlapping Pending or Approved requests are rejected. An employee can withdraw their own Pending request.
+Employees and trainers can open **My leave → Apply for leave**, choose Annual/Sick/Casual/Unpaid, select inclusive dates and enter a reason. Requests cover 1–366 calendar days; overlapping Pending or Approved requests are rejected. An employee can withdraw their own Pending request.
 
-Only an administrator (the built-in **Finance / Admin** role, or a custom role with `admin` permissions) can view all applications and approve/reject a Pending request. Rejection requires a reason; administrators cannot decide their own applications. Employees see only their own applications and receive portal notifications for decisions. Approved leave contributes to the dashboard's current on-leave count. This workflow does not calculate statutory leave balances, eligibility or payroll deductions.
+Management and administrators open **Leave approvals** to review employee and trainer applications. This is an approval queue, not a personal application form; it defaults to Pending with searchable reasons and a status filter for history. Rejection requires a reason. Staff see only their own applications and receive portal notifications for decisions. Approved leave contributes to live team attendance and the dashboard's current on-leave count. This workflow does not calculate statutory leave balances, eligibility or payroll deductions.
 
-### Admin-created users, profiles, roles and departments
+### Management-created employee profiles, roles and departments
 
-Sign in as an administrator and open **User administration**:
+Sign in through **Admin / Management** and open **Employee profiles**. Management can provision employee / trainer accounts; an administrator can provision all base roles:
 
-1. Use **Departments → Create department** and **Roles → Create role** if a new assignment is needed.
-2. Use **Create user portal** to enter name, work email, job title, role, department, optional phone/start date and an initial password of at least 10 characters.
+1. Use **Departments → Create department** if needed. Full administrators can also open **Roles & permissions → Create role** for a named permission preset.
+2. Use **Create employee profile** to enter name, work email, job title, role, department, optional phone/start date and an initial password of at least 10 characters.
 3. Share that password securely with the employee; credentials are hashed with a random salt and are never returned by the API or sent by email.
 4. The employee can immediately sign in using **Employee / Trainer** or **Admin / Management**, as shown in the creation form for the selected role.
 5. Use **Edit profile** to update assignments/profile details, set a new password or deactivate an account. Deactivation blocks both new logins and authenticated requests from existing sessions. Administrators cannot deactivate/demote their own account, and the last active administrator is protected.
 
-A custom role is a named preset inheriting one of the existing `employee`, `trainer`, `manager` or `admin` permission levels—not an arbitrary new permission system. Custom names appear in profiles and the directory; server authorization and the two sign-in categories continue to use the assigned base permission level. This preserves existing permission behavior.
+A custom role is a named preset inheriting one of the existing `employee`, `trainer`, `manager` or `admin` permission levels—not an arbitrary new permission system. Custom names appear in profiles and the directory; server authorization and the two sign-in categories continue to use the assigned base permission level. Creating a role cannot bypass the shared base-role permission policy, including management restrictions on privileged assignments.
 
 ## Demo accounts
 
@@ -139,7 +158,7 @@ All demo accounts use password **`password123`**.
 | Employee / Trainer | `john@excellium.com` (Employee), `priya@excellium.com` (Trainer) |
 | Admin / Management | `daniel@excellium.com` (Management), `sara@excellium.com` (Finance / Admin) |
 
-The selected sign-in category must match the email address used to sign in. The UI intentionally offers only these two choices.
+The selected sign-in category must match the account's saved role. The two category cards do not grant access. Demo-role buttons prefill John, Priya, Daniel or Sara; the management category defaults to Sara for full administrator access.
 
 ## Quality checks
 
@@ -156,18 +175,18 @@ npm exec --workspace client -- playwright install --with-deps chromium
 npm run test:e2e --workspace client
 ```
 
-The browser suite builds the client and starts Express on port 4173 with a disposable local JSON store; it never writes to a configured Supabase project. It covers invoice draft/edit/submit/PDF/approval and mobile layout, employee/admin leave decisions, role/department/profile creation, new-user sign-in, profile editing and deactivation. The backend tests run without a remote database; PGlite executes the real SQL migrations and normalized-store reads/writes in embedded PostgreSQL. To use a preinstalled browser, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (and optionally `PLAYWRIGHT_CHROMIUM_ARGS` as a JSON array).
+The browser suite builds the client and starts Express on port 4173 with a disposable local JSON store; it never writes to a configured Supabase project. It covers invoice draft/edit/submit/PDF/approval, all four role-specific sidebars, responsive/mobile navigation, deep-link access guards, employee/trainer leave decisions by Daniel and Sara, focus and 30-second queue refresh, role/department/profile creation by authorized management, new-user sign-in/category rejection, trainer session confirmation, profile editing and deactivation. The backend tests run without a remote database; PGlite executes the real SQL migrations and normalized-store reads/writes in embedded PostgreSQL. To use a preinstalled browser, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (and optionally `PLAYWRIGHT_CHROMIUM_ARGS` as a JSON array).
 
 ## API areas
 
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`
 - Attendance: clock-in/out, breaks, activity events, corrections, team status
 - Invoices: `GET/POST /api/invoices`, `PUT /api/invoices/:id/draft`, `POST /api/invoices/:id/submit`, `GET /api/invoices/:id/pdf`, existing `PATCH /api/invoices/:id` decisions and `GET /api/invoices/:id/document` signed attachment URLs
-- Leave: `GET/POST /api/leaves`, admin-only `PATCH /api/leaves/:id` decisions, own Pending withdrawal with `POST /api/leaves/:id/cancel`
-- User administration (admin-only): `GET/POST /api/admin/users`, `PATCH /api/admin/users/:id`, `POST /api/admin/users/roles`, `POST /api/admin/users/departments`; the GET response includes users plus assignable roles/departments
-- Meetings: scoped listing and scheduling
+- Leave: `GET/POST /api/leaves`, management-scoped `PATCH /api/leaves/:id` decisions, own Pending withdrawal with `POST /api/leaves/:id/cancel`; creation/withdrawal are employee/trainer-only
+- Profile administration: `GET/POST /api/admin/users`, `PATCH /api/admin/users/:id`, `POST /api/admin/users/departments`; managers receive only manageable staff profiles and assignable employee/trainer role presets. `POST /api/admin/users/roles` and privileged role assignments require an administrator.
+- Meetings: scoped listing, trainer training-session requests and management scheduling/confirmation with `PATCH /api/meetings/:id`
 - Equipment: assets, multipart requests, management approvals, and signed attachment URLs
-- Workspace: dashboard, directory, reports, notifications, profile, organization settings, audit log
+- Workspace: consolidated `GET /api/portal`, dashboard, directory, reports, notifications, profile, administrator-only organization settings and audit log
 
 All routes validate request data with Zod. Protected routes enforce role-based access on the server—not only in the React UI.
 
@@ -187,7 +206,7 @@ With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normali
 
 The employee control bar has four explicit states: `CLOCKED_OUT`, `ACTIVE`, `IDLE`, and `ON_BREAK`. Tracking listeners exist only while the session is active or idle. A 5- or 15-minute break immediately clears those listeners and idle timers, shows a live countdown, and resumes automatically when it reaches zero. The browser samples only trusted portal-tab events and lightweight coordinates; it does not collect typed characters, screen captures, or page content.
 
-Management can open **Reports and analytics** for the end-of-day activity table, chronological employee timeline, suspicious-pattern review count, and CSV export. Jiggler heuristics are review signals—not automatic disciplinary decisions—and cover repeated coordinate loops, fixed-interval tiny nudges, and 30 minutes of pointer motion without clicks or keypresses.
+Management can open **Workforce reports** for the end-of-day activity table, chronological employee timeline, suspicious-pattern review count, and CSV export. Jiggler heuristics are review signals—not automatic disciplinary decisions—and cover repeated coordinate loops, fixed-interval tiny nudges, and 30 minutes of pointer motion without clicks or keypresses.
 
 ## Environment configuration
 

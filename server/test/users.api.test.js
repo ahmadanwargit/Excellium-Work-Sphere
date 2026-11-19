@@ -11,10 +11,12 @@ test('admin creates departments, named role presets and working user portals wit
   const admin = await login('sara@excellium.com', 'management');
   const employee = await login();
   const manager = await login('daniel@excellium.com', 'management');
-  for (const cookie of [employee, manager]) {
+  for (const cookie of [employee]) {
     assert.equal((await request('/api/admin/users', { cookie })).status, 403);
     assert.equal((await request('/api/admin/users/roles', { method: 'POST', cookie, body: { name: 'Illegal admin', baseRole: 'admin' } })).status, 403);
   }
+  assert.equal((await request('/api/admin/users', { cookie: manager })).status, 200);
+  assert.equal((await request('/api/admin/users/roles', { method: 'POST', cookie: manager, body: { name: 'Cannot grant roles', baseRole: 'admin' } })).status, 403);
   const roleResponse = await request('/api/admin/users/roles', { method: 'POST', cookie: admin, body: { name: 'Support Lead', baseRole: 'trainer', description: 'Training and employee tools.' } });
   assert.equal(roleResponse.status, 201);
   const role = (await roleResponse.json()).role;

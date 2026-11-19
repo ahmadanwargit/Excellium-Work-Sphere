@@ -1,6 +1,6 @@
 import {
   Bell, BriefcaseBusiness, CalendarDays, ChartNoAxesCombined, Clock3, Eye, EyeOff, FileText, Gauge,
-  LayoutDashboard, Lock, Menu, MonitorCog, Settings, ShieldCheck, Trophy, UserRound, UsersRound, X
+  Building2, ClipboardList, History, LayoutDashboard, Lock, Menu, MonitorCog, Package, RefreshCw, Settings, ShieldCheck, Trophy, UserRound, UsersRound, X
 } from 'lucide-react';
 
 const icons = {
@@ -11,6 +11,13 @@ const icons = {
   meetings: CalendarDays,
   leaves: CalendarDays,
   users: UsersRound,
+  roles: ShieldCheck,
+  departments: Building2,
+  assets: Package,
+  organization: Building2,
+  audit: ClipboardList,
+  history: History,
+  refresh: RefreshCw,
   equipment: MonitorCog,
   directory: UsersRound,
   reports: ChartNoAxesCombined,

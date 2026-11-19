@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuthentication, requireManagement } from '../middleware/auth.middleware.js';
+import { requireAuthentication, requirePermission } from '../middleware/auth.middleware.js';
+import { canManagePerson, canReviewPerson } from '../../../shared/access-control.mjs';
+import { invoiceList } from '../services/workspace-views.service.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
-import { addAuditEntry, addNotification, findUser, formatInvoice, isManager } from '../services/records.service.js';
+import { addAuditEntry, addNotification, findUser, formatInvoice } from '../services/records.service.js';
 import { invoiceSchema, prepareInvoice } from '../services/invoice.service.js';
 import { createInvoicePdf } from '../services/invoice-pdf.service.js';
 import { currentIso, nextSequenceId } from '../utils/ids.js';
@@ -17,8 +19,8 @@ function findInvoice(data, invoiceId) {
   return invoice;
 }
 
-function canAccessInvoice(user, invoice) {
-  if (invoice.employeeId !== user.id && (!isManager(user) || invoice.status === 'Draft')) throw forbidden('You cannot access this invoice');
+function canAccessInvoice(user, invoice, data) {
+  if (invoice.employeeId !== user.id && (invoice.status === 'Draft' || !canManagePerson(user, findUser(data, invoice.employeeId)))) throw forbidden('You cannot access this invoice');
 }
 
 function requireOwnedDraft(user, invoice) {
@@ -38,8 +40,7 @@ export function createInvoicesRouter() {
   router.get('/', (request, response) => {
     const data = request.app.locals.store.data;
     const user = request.auth.user;
-    const invoices = data.invoices.filter((invoice) => invoice.employeeId === user.id || (isManager(user) && invoice.status !== 'Draft'))
-      .map((invoice) => formatInvoice(data, invoice));
+    const invoices = invoiceList(data, user);
     response.json({ invoices });
   });
 
@@ -47,7 +48,7 @@ export function createInvoicesRouter() {
     try {
       const data = request.app.locals.store.data;
       const invoice = findInvoice(data, request.params.invoiceId);
-      canAccessInvoice(request.auth.user, invoice);
+      canAccessInvoice(request.auth.user, invoice, request.app.locals.store.data);
       const pdf = await createInvoicePdf({ invoice, employee: findUser(data, invoice.employeeId), organization: data.organization });
       response.set('Cache-Control', 'private, no-store').type('application/pdf').attachment(`${invoice.id}.pdf`).send(pdf);
     } catch (error) { next(error); }
@@ -56,13 +57,13 @@ export function createInvoicesRouter() {
   router.get('/:invoiceId/document', async (request, response, next) => {
     try {
       const invoice = findInvoice(request.app.locals.store.data, request.params.invoiceId);
-      canAccessInvoice(request.auth.user, invoice);
+      canAccessInvoice(request.auth.user, invoice, request.app.locals.store.data);
       const signed = await request.app.locals.storage.createSignedUrl(invoice.document);
       response.json(signed);
     } catch (error) { next(error); }
   });
 
-  router.post('/', upload.single('document'), validate(invoiceSchema), async (request, response, next) => {
+  router.post('/', requirePermission('selfService'), upload.single('document'), validate(invoiceSchema), async (request, response, next) => {
     let uploadedDocument;
     try {
       const fields = prepareInvoice(request.validated);
@@ -86,7 +87,7 @@ export function createInvoicesRouter() {
     }
   });
 
-  router.put('/:invoiceId/draft', upload.single('document'), validate(invoiceSchema), async (request, response, next) => {
+  router.put('/:invoiceId/draft', requirePermission('selfService'), upload.single('document'), validate(invoiceSchema), async (request, response, next) => {
     let uploadedDocument;
     try {
       requireOwnedDraft(request.auth.user, findInvoice(request.app.locals.store.data, request.params.invoiceId));
@@ -114,7 +115,7 @@ export function createInvoicesRouter() {
     }
   });
 
-  router.post('/:invoiceId/submit', validate(z.object({}).strict()), async (request, response, next) => {
+  router.post('/:invoiceId/submit', requirePermission('selfService'), validate(z.object({}).strict()), async (request, response, next) => {
     try {
       let invoice;
       await request.app.locals.store.mutate((data) => {
@@ -129,11 +130,12 @@ export function createInvoicesRouter() {
     } catch (error) { next(error); }
   });
 
-  router.patch('/:invoiceId', requireManagement, validate(decisionSchema), async (request, response, next) => {
+  router.patch('/:invoiceId', requirePermission('reviewInvoices'), validate(decisionSchema), async (request, response, next) => {
     try {
       let invoice;
       await request.app.locals.store.mutate((data) => {
         invoice = findInvoice(data, request.params.invoiceId);
+        if (!canReviewPerson(request.auth.user, findUser(data, invoice.employeeId))) throw forbidden('You cannot decide your own invoice or an invoice outside your staff scope');
         if (invoice.status !== 'Pending') throw conflict('Only pending invoices can be decided');
         invoice.status = request.validated.status;
         invoice.decidedAt = currentIso();

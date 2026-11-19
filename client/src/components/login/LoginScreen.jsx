@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Logo } from '../common/Logo';
 import { Icon } from '../common/Icon';
-import { accessGroupMeta } from '../../utils/portal';
+import { accessGroupMeta, roleMeta } from '../../utils/portal';
 import officeBackground from '../../assets/office-bg.jpg';
 
 const featurePills = ['Real-time Attendance', 'Payroll & Invoices', 'Asset Tracking'];
 
-export function LoginScreen({ onLogin }) {
+export function LoginScreen({ onLogin, connectionError }) {
   const [accessGroup, setAccessGroup] = useState('employee');
   const [email, setEmail] = useState(accessGroupMeta.employee.email);
   const [password, setPassword] = useState('password123');
@@ -18,6 +18,7 @@ export function LoginScreen({ onLogin }) {
   const selectAccessGroup = (nextAccessGroup) => {
     setAccessGroup(nextAccessGroup);
     setEmail(accessGroupMeta[nextAccessGroup].email);
+    setError('');
   };
 
   const submit = async (event) => {
@@ -72,6 +73,8 @@ export function LoginScreen({ onLogin }) {
                     type="button"
                     key={key}
                     onClick={() => selectAccessGroup(key)}
+                    aria-pressed={selected}
+                    disabled={busy}
                     className={`relative rounded-2xl border p-4 text-left transition ${selected ? 'border-[#8b5cf6] bg-[#8b5cf6]/[.13] shadow-[0_0_0_1px_#8b5cf6_inset]' : 'border-white/10 bg-white/[.03] hover:border-white/25'}`}
                   >
                     {selected && <span className="absolute right-3.5 top-3.5 h-2 w-2 rounded-full bg-[#a78bfa] shadow-[0_0_8px_#a78bfa]" />}
@@ -83,7 +86,7 @@ export function LoginScreen({ onLogin }) {
             </div>
 
             <label className="login-label" htmlFor="email">Work email</label>
-            <input className="login-input" id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+            <input className="login-input" id="email" type="email" autoComplete="username" disabled={busy} value={email} onChange={(event) => setEmail(event.target.value)} required />
 
             <div className="mt-4 flex items-center justify-between">
               <label className="login-label !mt-0 !mb-0" htmlFor="password">Password</label>
@@ -95,6 +98,8 @@ export function LoginScreen({ onLogin }) {
               <input
                 className="login-input pr-11"
                 id="password"
+                autoComplete="current-password"
+                disabled={busy}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -111,7 +116,7 @@ export function LoginScreen({ onLogin }) {
             </div>
             {showResetNote && <p className="m-0 mt-2 text-xs leading-relaxed text-[#8f88a8]">Password resets are handled by your workspace administrator.</p>}
 
-            {error && <p className="m-0 mt-3 text-sm text-[#f08a82]">{error}</p>}
+            {(error || connectionError) && <p role="alert" className="m-0 mt-3 text-sm text-[#f08a82]">{error || connectionError}</p>}
 
             <button className="login-submit mt-6 w-full rounded-xl py-3.5 text-[15px] font-semibold" type="submit" disabled={busy}>
               {busy ? 'Signing in…' : 'Sign in'}
@@ -120,10 +125,12 @@ export function LoginScreen({ onLogin }) {
             <div className="mt-6 flex items-center justify-between border-t border-white/[.07] pt-4 text-xs text-[#8f88a8]">
               <span className="flex items-center gap-1.5">
                 <Icon name="lock" size={13} />
-                SSO &amp; 2FA Protected
+                Secure session sign-in
               </span>
-              <span>{accessGroup === 'employee' ? 'Employee Access' : 'Admin Access'}</span>
+              <span>{accessGroup === 'employee' ? 'Personal workspace' : 'Management workspace'}</span>
             </div>
+            <p className="mb-0 mt-3 text-[11px] leading-relaxed text-[#9a92b3]">Your saved account role determines access. This category does not grant administrator permissions.</p>
+            <div className="mt-4 border-t border-white/[.07] pt-3"><small className="block text-[10px] uppercase tracking-wide text-[#8f88a8]">Preview a demo role</small><div className="mt-2 flex flex-wrap gap-2">{Object.entries(roleMeta).filter(([role]) => accessGroup === 'management' ? ['manager', 'admin'].includes(role) : ['employee', 'trainer'].includes(role)).map(([role, item]) => <button key={role} type="button" disabled={busy} className="rounded-lg border border-white/10 bg-white/[.03] px-2.5 py-1.5 text-[11px] text-[#c4b5fd] hover:border-[#8b5cf6]" onClick={() => { setEmail(item.email); setPassword('password123'); setError(''); }}>{item.label} demo</button>)}</div></div>
           </form>
         </div>
 

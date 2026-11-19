@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAdministrator, requireAuthentication } from '../middleware/auth.middleware.js';
+import { requireAdministrator, requireAuthentication, requirePermission } from '../middleware/auth.middleware.js';
+import { assignableRoles, canManagePerson } from '../../../shared/access-control.mjs';
+import { administrationView } from '../services/workspace-views.service.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { hashPassword } from '../services/auth.service.js';
 import { addAuditEntry, addNotification, publicUser } from '../services/records.service.js';
@@ -28,9 +30,10 @@ const roleSchema = z.object({
 }).strict();
 const departmentSchema = z.object({ name: z.string().trim().min(2).max(100) }).strict();
 
-function assignment(data, input) {
+function assignment(data, input, actor) {
   const role = data.roles.find((item) => item.id === input.roleId);
   if (!role) throw notFound('Select an existing role');
+  if (!assignableRoles(actor).includes(role.baseRole)) throw forbidden('Management can assign only employee or trainer roles. Administrator access is required for privileged roles.');
   const department = data.departments.find((item) => item.id === input.departmentId);
   if (!department) throw notFound('Select an existing department');
   return { role: role.baseRole, roleId: role.id, roleName: role.name, accessGroup: accessGroupForRole(role.baseRole), departmentId: department.id, department: department.name };
@@ -42,14 +45,13 @@ function checkEmail(data, email, exceptId) {
 
 export function createUsersRouter() {
   const router = Router();
-  router.use(requireAuthentication, requireAdministrator);
+  router.use(requireAuthentication, requirePermission('manageStaff'));
 
   router.get('/', (request, response) => {
-    const { users, roles, departments } = request.app.locals.store.data;
-    response.json({ users: users.map(publicUser), roles, departments });
+    response.json(administrationView(request.app.locals.store.data, request.auth.user));
   });
 
-  router.post('/roles', validate(roleSchema), async (request, response, next) => {
+  router.post('/roles', requireAdministrator, validate(roleSchema), async (request, response, next) => {
     try {
       let role;
       await request.app.locals.store.mutate((data) => {
@@ -82,7 +84,7 @@ export function createUsersRouter() {
       let user;
       await request.app.locals.store.mutate((data) => {
         checkEmail(data, profile.email);
-        user = { id: createId('usr'), ...profile, ...assignment(data, { roleId, departmentId }), ...credentials, active: true, createdAt: currentIso() };
+        user = { id: createId('usr'), ...profile, ...assignment(data, { roleId, departmentId }, request.auth.user), ...credentials, active: true, createdAt: currentIso() };
         data.users.push(user);
         addNotification(data, { userId: user.id, message: `Welcome to ${data.organization.name}. Your ${user.roleName} workspace is ready.` });
         addAuditEntry(data, request.auth.user.id, `Created profile for ${user.name} (${user.roleName}, ${user.department})`, { subjectUserId: user.id, eventType: 'USER_CREATED' });
@@ -99,7 +101,8 @@ export function createUsersRouter() {
       await request.app.locals.store.mutate((data) => {
         user = data.users.find((candidate) => candidate.id === request.params.userId);
         if (!user) throw notFound('User not found');
-        const selected = assignment(data, { roleId, departmentId });
+        if (!canManagePerson(request.auth.user, user)) throw forbidden('You cannot manage a profile outside your staff scope');
+        const selected = assignment(data, { roleId, departmentId }, request.auth.user);
         checkEmail(data, profile.email, user.id);
         if (user.id === request.auth.user.id && (!profile.active || selected.role !== 'admin')) throw forbidden('You cannot deactivate or remove administrator access from your own account');
         if (user.role === 'admin' && (!profile.active || selected.role !== 'admin') && !data.users.some((other) => other.id !== user.id && other.role === 'admin' && other.active !== false)) {

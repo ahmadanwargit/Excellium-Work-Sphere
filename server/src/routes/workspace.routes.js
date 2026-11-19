@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdministrator, requireAuthentication, requireManagement } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
-import { addAuditEntry, formatAttendance, isManager, publicUser, visibleNotifications } from '../services/records.service.js';
-import { currentDateKey } from '../utils/ids.js';
+import { addAuditEntry, publicPerson, publicUser, visibleNotifications } from '../services/records.service.js';
+import { auditView, dashboardSummary, portalView } from '../services/workspace-views.service.js';
 
 const profileSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
@@ -16,33 +16,6 @@ const organizationSchema = z.object({
   standardStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   inactivityLockMinutes: z.number().int().min(1).max(60).optional()
 }).refine((value) => Object.keys(value).length > 0, 'Provide at least one organization field');
-
-function dashboardSummary(data, user) {
-  if (isManager(user)) {
-    const attendance = data.attendance.filter((record) => record.date === currentDateKey());
-    const onLeave = new Set(attendance.filter((record) => record.status === 'On leave').map((record) => record.userId));
-    for (const leave of data.leaveRequests) {
-      if (leave.status === 'Approved' && leave.startDate <= currentDateKey() && leave.endDate >= currentDateKey()) onLeave.add(leave.employeeId);
-    }
-    return {
-      totalEmployees: data.users.length,
-      present: attendance.filter((record) => ['Present', 'On time', 'Late', 'Early departure'].includes(record.status)).length,
-      absent: attendance.filter((record) => record.status === 'Absent').length,
-      onLeave: onLeave.size,
-      departmentCount: data.departments.length,
-      pendingInvoices: data.invoices.filter((invoice) => invoice.status === 'Pending').length,
-      pendingEquipmentRequests: data.equipmentRequests.filter((request) => request.status === 'Pending').length,
-      upcomingMeetings: data.meetings.filter((meeting) => new Date(meeting.startsAt) >= new Date()).length
-    };
-  }
-
-  const records = data.attendance.filter((record) => record.userId === user.id);
-  return {
-    current: records.find((record) => record.date === currentDateKey() && record.clockIn && !record.clockOut) ?? null,
-    totalActiveSeconds: records.reduce((sum, record) => sum + (record.activeSeconds || 0), 0),
-    lateArrivals: records.filter((record) => record.status === 'Late').length
-  };
-}
 
 const reportBuilders = {
   Attendance: (data) => [
@@ -60,6 +33,10 @@ export function createWorkspaceRouter() {
   const router = Router();
   router.use(requireAuthentication);
 
+  router.get('/portal', (request, response) => {
+    response.set('Cache-Control', 'private, no-store').json(portalView(request.app.locals.store.data, request.auth.user));
+  });
+
   router.get('/me', (request, response) => response.json({ user: publicUser(request.auth.user) }));
 
   router.get('/dashboard', (request, response) => {
@@ -76,7 +53,7 @@ export function createWorkspaceRouter() {
     const query = String(request.query.q ?? '').trim().toLowerCase();
     const people = request.app.locals.store.data.users
       .filter((user) => user.active !== false)
-      .map((user) => ({ id: user.id, name: user.name, email: user.email, title: user.title, department: user.department, role: user.role, roleName: user.roleName }))
+      .map(publicPerson)
       .filter((person) => !query || `${person.name} ${person.department} ${person.title}`.toLowerCase().includes(query));
     response.json({ people });
   });
@@ -143,12 +120,7 @@ export function createWorkspaceRouter() {
   });
 
   router.get('/audit-log', requireAdministrator, (request, response) => {
-    const data = request.app.locals.store.data;
-    const auditLog = data.auditLog.slice(0, 100).map((entry) => ({
-      ...entry,
-      actor: entry.actorId ? publicUser(data.users.find((user) => user.id === entry.actorId)) : null
-    }));
-    response.json({ auditLog });
+    response.json({ auditLog: auditView(request.app.locals.store.data) });
   });
 
   return router;

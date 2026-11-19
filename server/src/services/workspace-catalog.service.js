@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 
 export const SYSTEM_ROLES = Object.freeze([
-  { id: 'employee', name: 'Employee', baseRole: 'employee', description: 'Personal attendance, invoices, leave and equipment.', system: true },
-  { id: 'trainer', name: 'Trainer', baseRole: 'trainer', description: 'Employee tools plus the training workspace.', system: true },
-  { id: 'manager', name: 'Management', baseRole: 'manager', description: 'Team reports, invoice and equipment approvals.', system: true },
-  { id: 'admin', name: 'Finance / Admin', baseRole: 'admin', description: 'Management tools, leave approvals and user administration.', system: true }
+  { id: 'employee', name: 'Employee', baseRole: 'employee', description: 'Personal attendance, invoices, leave, equipment and invited meetings.', system: true },
+  { id: 'trainer', name: 'Trainer', baseRole: 'trainer', description: 'Employee self-service plus training session requests.', system: true },
+  { id: 'manager', name: 'Management', baseRole: 'manager', description: 'Staff leave, invoice and equipment approvals, employee profiles, team attendance and reports.', system: true },
+  { id: 'admin', name: 'Finance / Admin', baseRole: 'admin', description: 'Full management workspace plus privileged role assignment, role creation, organization settings and audit trail.', system: true }
 ]);
 
 export function departmentId(name) {
@@ -19,6 +19,10 @@ export function ensureWorkspaceFeatures(data) {
     id: departmentId(name), name, createdAt: '2026-01-02T09:00:00.000Z'
   }));
   data.leaveRequests ??= [];
+  for (const role of data.roles) {
+    const builtIn = SYSTEM_ROLES.find((item) => item.id === role.id);
+    if (builtIn && role.system) role.description = builtIn.description;
+  }
   for (const user of data.users) {
     user.roleId ??= user.role;
     user.roleName = data.roles.find((role) => role.id === user.roleId)?.name ?? user.role;

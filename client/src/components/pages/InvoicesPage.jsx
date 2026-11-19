@@ -1,15 +1,21 @@
 import { useState } from 'react';
 import { Button, DataTable, EmptyState, Modal, PageHeading, Panel } from '../common/UI';
 import { StatusBadge } from '../common/StatusBadge';
-import { isManager } from '../../utils/portal';
+import { can } from '../../utils/portal';
 import { exportInvoices, formatMoney, formErrorMessage, invoiceTotals } from '../../utils/workflows';
 
 const newLine = () => ({ key: window.crypto.randomUUID(), description: '', quantity: 1, unitRate: '' });
 const freshInvoice = () => ({ id: null, month: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }), currency: 'USD', taxRate: 0, paymentDetails: '', notes: '', dueDate: '', lineItems: [newLine()], document: null });
 
-function PaymentChart() {
-  const months = [['Jun', 4200], ['Jul', 4200], ['Aug', 4000], ['Sep', 4200], ['Oct', 4200]];
-  return <div className="flex h-[150px] items-end gap-2.5 pt-2.5">{months.map(([month, value]) => <div className="chart-column" key={month}><i className="chart-column-bar" style={{ height: `${value / 4200 * 100}%` }} />{month}</div>)}</div>;
+function PaymentChart({ invoices }) {
+  const groups = new Map();
+  invoices.filter((invoice) => invoice.status === 'Approved').forEach((invoice) => {
+    const key = `${invoice.month} · ${invoice.currency ?? 'USD'}`;
+    groups.set(key, { label: key, currency: invoice.currency, total: (groups.get(key)?.total ?? 0) + invoice.amount });
+  });
+  const months = [...groups.values()].slice(0, 6).reverse();
+  const max = Math.max(1, ...months.map((item) => item.total));
+  return months.length ? <div className="flex h-[200px] items-end gap-2.5 pt-2.5">{months.map(({ label, total, currency }) => <div className="chart-column min-w-0" key={label}><small className="break-words">{formatMoney(total, currency)}</small><i className="chart-column-bar" style={{ height: `${total / max * 70}%` }} /><span className="break-words">{label}</span></div>)}</div> : <EmptyState>No approved invoice history yet. Approval is not a confirmation of payment.</EmptyState>;
 }
 
 export function InvoicesPage({ user, invoices, actions, onError }) {
@@ -18,7 +24,8 @@ export function InvoicesPage({ user, invoices, actions, onError }) {
   const [status, setStatus] = useState('All');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const manager = isManager(user.role);
+  const manager = can(user, 'reviewInvoices');
+  const selfService = can(user, 'selfService');
   const totals = editor ? invoiceTotals(editor.lineItems, editor.taxRate) : null;
   const results = invoices.filter((invoice) => status === 'All' || invoice.status === status);
   const edit = (invoice) => {
@@ -60,8 +67,8 @@ export function InvoicesPage({ user, invoices, actions, onError }) {
   const headings = ['ID', ...(manager ? ['Employee'] : []), 'Month', 'Amount', 'Status', 'Actions'];
 
   return <>
-    <PageHeading title="Salary invoices" description={manager ? 'Review prepared invoices and decide on submissions.' : 'Prepare invoices on the portal, save drafts and submit them for approval.'} action={<div className="flex gap-2">{!manager && <Button variant="primary" disabled={busy} onClick={() => { setError(''); setEditor(freshInvoice()); }}>Prepare invoice</Button>}<Button onClick={() => exportInvoices(invoices)}>Export records</Button></div>} />
-    {editor && <div className="mb-4"><Panel title={editor.id ? `Edit draft ${editor.id}` : 'Prepare invoice'} action={<Button small type="button" disabled={busy} onClick={() => setEditor(null)}>Close editor</Button>}>
+    <PageHeading title={manager ? 'Invoice approvals' : 'My salary invoices'} description={manager ? 'Review employee and trainer submissions. Drafts stay private to their owners; management cannot prepare personal invoices.' : 'Prepare invoices on the portal, save drafts and submit them for approval.'} action={<div className="flex gap-2">{selfService && <Button variant="primary" disabled={busy} onClick={() => { setError(''); setEditor(freshInvoice()); }}>Prepare invoice</Button>}<Button onClick={() => exportInvoices(invoices)}>Export records</Button></div>} />
+    {selfService && editor && <div className="mb-4"><Panel title={editor.id ? `Edit draft ${editor.id}` : 'Prepare invoice'} action={<Button small type="button" disabled={busy} onClick={() => setEditor(null)}>Close editor</Button>}>
       <form onSubmit={save}>
         <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
           <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-3">
@@ -87,15 +94,15 @@ export function InvoicesPage({ user, invoices, actions, onError }) {
         </fieldset>
       </form>
     </Panel></div>}
-    <Panel title="Invoices" action={<select aria-label="Filter invoice status" className="field-control !w-auto !py-1.5" value={status} onChange={(event) => setStatus(event.target.value)}>{['All', 'Draft', 'Pending', 'Approved', 'Rejected'].map((value) => <option key={value}>{value}</option>)}</select>}>
+    <Panel title="Invoices" action={<select aria-label="Filter invoice status" className="field-control !w-auto !py-1.5" value={status} onChange={(event) => setStatus(event.target.value)}>{['All', ...(selfService ? ['Draft'] : []), 'Pending', 'Approved', 'Rejected'].map((value) => <option key={value}>{value}</option>)}</select>}>
       {results.length ? <DataTable headings={headings} rows={results.map((item) => ({ id: item.id, cells: [item.id, ...(manager ? [item.employee?.name ?? '—'] : []), item.month, formatMoney(item.amount, item.currency), <StatusBadge key="status" status={item.status}>{item.status}</StatusBadge>, <span key="actions" className="flex flex-wrap gap-1.5">
         <Button small onClick={() => setPreview(item)}>View</Button><Button small disabled={busy} onClick={() => run(() => actions.downloadInvoice(item.id))}>PDF</Button>
         {item.document && <Button small disabled={busy} onClick={() => viewDocument(item.id)}>Attachment</Button>}
-        {item.status === 'Draft' && item.employeeId === user.id && <><Button small disabled={busy} onClick={() => edit(item)}>Edit</Button><Button small variant="primary" disabled={busy} onClick={() => run(() => actions.submitInvoice(item.id), 'Invoice sent for approval')}>Submit</Button></>}
-        {manager && item.status === 'Pending' && <><Button small variant="primary" disabled={busy} onClick={() => run(() => actions.decideInvoice(item.id, 'Approved'))}>Approve</Button><Button small variant="danger" disabled={busy} onClick={() => run(() => actions.decideInvoice(item.id, 'Rejected'))}>Reject</Button></>}
-      </span>] }))} /> : <EmptyState>No invoices match this view. Prepare a new invoice to get started.</EmptyState>}
+        {selfService && item.status === 'Draft' && item.employeeId === user.id && <><Button small disabled={busy} onClick={() => edit(item)}>Edit</Button><Button small variant="primary" disabled={busy} onClick={() => run(() => actions.submitInvoice(item.id), 'Invoice sent for approval')}>Submit</Button></>}
+        {manager && item.canReview && item.status === 'Pending' && <><Button small variant="primary" disabled={busy} onClick={() => run(() => actions.decideInvoice(item.id, 'Approved'))}>Approve</Button><Button small variant="danger" disabled={busy} onClick={() => run(() => actions.decideInvoice(item.id, 'Rejected'))}>Reject</Button></>}
+      </span>] }))} /> : <EmptyState>{manager ? 'No submitted staff invoices match this view.' : 'No invoices match this view. Prepare a new invoice to get started.'}</EmptyState>}
     </Panel>
-    <div className="mt-4"><Panel title="Payment history"><PaymentChart /></Panel></div>
+    <div className="mt-4"><Panel title="Approved invoice history"><PaymentChart invoices={invoices} /></Panel></div>
     {preview && <Modal title={`Invoice ${preview.id}`} wide closeLabel="Close" onClose={() => setPreview(null)}>
       <div className="my-4 flex flex-wrap items-center justify-between gap-3"><div><b>{preview.employee?.name}</b><small className="block text-muted">{preview.employee?.email} · {preview.employee?.department}</small></div><StatusBadge status={preview.status}>{preview.status}</StatusBadge></div>
       <p>Period: <b>{preview.month}</b>{preview.dueDate && <> · Due: {preview.dueDate}</>}</p>

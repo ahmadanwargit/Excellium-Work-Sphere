@@ -2,16 +2,18 @@ import { Router } from 'express';
 import { requireAuthentication, requireManagement } from '../middleware/auth.middleware.js';
 import { buildDailyActivityReport, employeeActivityTimeline, ensureWorkSessionCollections } from '../services/activity.service.js';
 import { currentDateKey } from '../utils/ids.js';
-import { HttpError } from '../utils/http-error.js';
-
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+import { forbidden, HttpError } from '../utils/http-error.js';
+import { canManagePerson } from '../../../shared/access-control.mjs';
+import { dateOnlySchema } from '../utils/validation.js';
 
 function requestedDate(value) {
-  const date = String(value ?? currentDateKey());
-  if (!DATE_PATTERN.test(date) || Number.isNaN(new Date(`${date}T00:00:00.000Z`).getTime())) {
-    throw new HttpError(400, 'date must use YYYY-MM-DD format');
-  }
-  return date;
+  const parsed = dateOnlySchema.safeParse(value ?? currentDateKey());
+  if (!parsed.success) throw new HttpError(400, 'date must be a valid calendar date in YYYY-MM-DD format');
+  return parsed.data;
+}
+
+function scopedReport(request, date) {
+  return buildDailyActivityReport(request.app.locals.store.data, date).filter((row) => canManagePerson(request.auth.user, row.employee));
 }
 
 function csvField(value) {
@@ -38,7 +40,7 @@ export function createAdminRouter() {
       const date = requestedDate(request.query.date);
       const data = request.app.locals.store.data;
       ensureWorkSessionCollections(data);
-      response.json({ date, reports: buildDailyActivityReport(data, date) });
+      response.json({ date, reports: scopedReport(request, date) });
     } catch (error) {
       next(error);
     }
@@ -53,7 +55,7 @@ export function createAdminRouter() {
         .status(200)
         .type('text/csv')
         .attachment(`excellium-daily-activity-${date}.csv`)
-        .send(reportCsv(buildDailyActivityReport(data, date)));
+        .send(reportCsv(scopedReport(request, date)));
     } catch (error) {
       next(error);
     }
@@ -64,6 +66,7 @@ export function createAdminRouter() {
       const date = requestedDate(request.query.date);
       const employee = request.app.locals.store.data.users.find((user) => user.id === request.params.employeeId);
       if (!employee) throw new HttpError(404, 'Employee was not found');
+      if (!canManagePerson(request.auth.user, employee)) throw forbidden('You cannot view a timeline outside your staff scope');
       response.json({ date, employee: { id: employee.id, name: employee.name, department: employee.department }, timeline: employeeActivityTimeline(request.app.locals.store.data, employee.id, date) });
     } catch (error) {
       next(error);

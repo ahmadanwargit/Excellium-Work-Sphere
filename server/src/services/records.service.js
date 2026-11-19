@@ -1,5 +1,6 @@
 import { createId, currentIso } from '../utils/ids.js';
 import { userAccessGroup } from './access-group.service.js';
+import { permissionsFor } from '../../../shared/access-control.mjs';
 
 export function isManager(user) {
   return user.role === 'manager' || user.role === 'admin';
@@ -16,7 +17,13 @@ export function findUser(data, userId) {
 export function publicUser(user) {
   if (!user) return null;
   const { passwordHash, passwordSalt, ...safeUser } = user;
-  return { ...safeUser, accessGroup: userAccessGroup(user) };
+  return { ...safeUser, accessGroup: userAccessGroup(user), permissions: permissionsFor(user) };
+}
+
+export function publicPerson(user) {
+  if (!user) return null;
+  const { id, name, email, title, department, departmentId, role, roleId, roleName } = user;
+  return { id, name, email, title, department, departmentId, role, roleId, roleName };
 }
 
 export function addNotification(data, { userId = null, audience = [], message }) {
@@ -70,7 +77,7 @@ export function formatAttendance(data, attendance) {
 
   return {
     ...attendance,
-    employee: publicUser(employee),
+    employee: publicPerson(employee),
     workedMinutes: Math.round(workedSeconds / 60),
     workedLabel: durationLabel(workedSeconds),
     activeLabel: durationLabel((attendance.activeSeconds || 0) + (attendance.clockOut ? 0 : elapsedSeconds)),
@@ -82,27 +89,27 @@ export function formatAttendance(data, attendance) {
 export function formatInvoice(data, invoice) {
   return {
     ...invoice,
-    employee: publicUser(findUser(data, invoice.employeeId)),
-    decidedByUser: publicUser(findUser(data, invoice.decidedBy))
+    employee: publicPerson(findUser(data, invoice.employeeId)),
+    decidedByUser: publicPerson(findUser(data, invoice.decidedBy))
   };
 }
 
 export function formatEquipmentRequest(data, request) {
   return {
     ...request,
-    employee: publicUser(findUser(data, request.employeeId)),
-    decidedByUser: publicUser(findUser(data, request.decidedBy))
+    employee: publicPerson(findUser(data, request.employeeId)),
+    decidedByUser: publicPerson(findUser(data, request.decidedBy))
   };
 }
 
 export function formatAsset(data, asset) {
-  return { ...asset, assignee: publicUser(findUser(data, asset.assignedTo)) };
+  return { ...asset, assignee: publicPerson(findUser(data, asset.assignedTo)) };
 }
 
 export function formatMeeting(data, meeting) {
   return {
     ...meeting,
-    creator: publicUser(findUser(data, meeting.createdBy)),
-    participantDetails: meeting.participants.map((id) => publicUser(findUser(data, id))).filter(Boolean)
+    creator: publicPerson(findUser(data, meeting.createdBy)),
+    participantDetails: meeting.participants.map((id) => publicPerson(findUser(data, id))).filter(Boolean)
   };
 }

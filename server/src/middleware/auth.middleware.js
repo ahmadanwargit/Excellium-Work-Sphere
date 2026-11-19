@@ -1,5 +1,6 @@
 import { findUser, isAdmin, isManager } from '../services/records.service.js';
 import { forbidden, unauthorized } from '../utils/http-error.js';
+import { can } from '../../../shared/access-control.mjs';
 
 const SESSION_COOKIE = 'excellium_session';
 
@@ -34,6 +35,13 @@ export function requireManagement(request, _response, next) {
 export function requireAdministrator(request, _response, next) {
   if (!isAdmin(request.auth.user)) return next(forbidden('This action requires finance or admin access'));
   return next();
+}
+
+export function requirePermission(permission) {
+  return (request, _response, next) => {
+    if (!can(request.auth.user, permission)) return next(forbidden('Your role cannot use this functionality'));
+    return next();
+  };
 }
 
 export { SESSION_COOKIE };
