@@ -71,7 +71,7 @@ export default function App() {
     assets: <EquipmentPage {...props} equipment={portal.data.equipment} inventoryOnly />,
     directory: <DirectoryPage people={portal.data.directory} />,
     reports: <ReportsPage onError={showToast} />,
-    rankings: <RankingsPage trainer={portal.user.role === 'trainer'} />,
+    rankings: <RankingsPage user={portal.user} rankings={portal.data.rankings} />,
     notifications: <NotificationsPage notifications={portal.data.notifications} onMarkAllRead={portal.markNotificationsRead} onError={showToast} />,
     settings: <SettingsPage {...props} />,
     organization: <AdministrationPage {...props} section="organization" />,

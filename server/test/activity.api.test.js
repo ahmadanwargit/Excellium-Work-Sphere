@@ -78,5 +78,5 @@ test('logs breaks, ignores activity during breaks, and serves daily admin report
   const csvResponse = await request(baseUrl, `/api/admin/reports/daily/export?date=${date}`, { cookie: adminCookie });
   assert.equal(csvResponse.status, 200);
   assert.match(csvResponse.headers.get('content-type'), /text\/csv/);
-  assert.match(await csvResponse.text(), /Productivity score/);
+  assert.match(await csvResponse.text(), /Active share/);
 });

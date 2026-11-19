@@ -24,7 +24,7 @@ A production-style monorepo for the Excellium Global Services workspace. The vis
 │   │   ├── components/             # Feature and reusable UI components
 │   │   ├── hooks/                  # Portal data/session orchestration
 │   │   ├── styles/                 # Tailwind entry point + design tokens
-│   │   └── utils/                  # View-model helpers and static UI data
+│   │   └── utils/                  # View-model helpers and chart aggregation
 │   ├── tailwind.config.js
 │   └── vite.config.js              # Vite proxy for /api → Express
 ├── server/                         # Express REST API
@@ -90,7 +90,7 @@ Import the **repository root**, not the `client/` directory. The committed `verc
 
 Before deploying:
 
-1. Apply all migrations listed below, including `202611170002_add_portal_workflows.sql`, **before deploying this API version**. The workflow migration adds roles, departments, leave requests, invoice items and profile fields; an older database schema cannot serve the new API.
+1. Apply all migrations listed below, including `202611170003_add_administration_lifecycle.sql` and `202611170004_atomic_workspace_mutations.sql`, **before deploying this API version**. The migrations add workflow catalogs, lifecycle/removal metadata, management-meeting details and server-only atomic writes; an older database schema cannot serve the new API.
 2. Set these **server-only** Vercel environment variables for the environments you deploy:
    - `PERSISTENCE_PROVIDER=supabase`
    - `SUPABASE_URL` and either `SUPABASE_SECRET_KEY` or legacy `SUPABASE_SERVICE_ROLE_KEY` (mark the key **Sensitive**)
@@ -105,7 +105,7 @@ The default authentication rate limit is per function instance. For higher-traff
 
 ## Portal workflows
 
-The existing visual language, invoice editor/PDFs, activity tracking, directory and read-only rankings remain in place. Workspaces now have distinct role-specific navigation, dashboards and action controls.
+The existing visual language, invoice editor/PDFs, activity tracking and directory remain in place. Workspaces have distinct role-specific navigation and actions. Attendance-only rankings and all charts use actual saved records, not illustrative scores.
 
 ### Role-specific workspaces
 
@@ -113,7 +113,9 @@ The existing visual language, invoice editor/PDFs, activity tracking, directory 
 | --- | --- | --- | --- | --- |
 | Own attendance, leave, invoices and equipment requests | Yes | Yes | No | No |
 | Invited meetings and own profile | Yes | Yes | Yes | Yes |
-| Request training sessions | No | Yes, pending confirmation | Schedule / confirm | Schedule / confirm |
+| Schedule a meeting with management | No (invitations only) | Yes, pending confirmation | Schedule / confirm invited requests | Schedule / confirm |
+| Attendance-only rankings | Yes | Yes | Yes | Yes |
+| Record employee/trainer equipment assignments | No | No | Yes | Yes |
 | Review staff leave, invoices and equipment requests | No | No | Employee / trainer requests | All managed requests |
 | Create and manage profiles | No | No | Employee / trainer roles only | All roles |
 | Departments, team attendance, inventory and workforce reports | No | No | Yes | Yes |
@@ -123,7 +125,7 @@ Management and administrators see grouped **People & access**, **Review & approv
 
 `shared/access-control.mjs` is the permission policy used by React navigation and Express guards. The stored base role, not a browser-selected category or custom display name, determines access. Individual record ownership/scope is also checked on the server. Managers cannot administer peers or administrators, and nobody can approve their own historical requests.
 
-`GET /api/portal` returns one role-scoped workspace snapshot. The client refreshes on navigation, focus/visibility return and every 30 seconds while visible; the shell also has **Refresh**, pending-review badges and a persistent synchronization-error notice. A newly submitted request appears in a manager's already-open queue without signing out. A stored role change replaces both the visible navigation and data on the next refresh. Privileged deep links fall back to the user's own overview. No new database migration is needed for this authorization/UI correction; the previously deployed workflow migration remains required on a fresh installation.
+`GET /api/portal` returns one role-scoped workspace snapshot. The client refreshes on navigation, focus/visibility return and every 30 seconds while visible; the shell also has **Refresh**, pending-review badges and a persistent synchronization-error notice. A newly submitted request appears in a manager's already-open queue without signing out. A stored role change replaces both the visible navigation and data on the next refresh. Privileged deep links fall back to the user's own overview. Apply both lifecycle and atomic-write migrations before deploying this version. Live profile removals and catalog assignments are stored durably; they do not return on a serverless cold start.
 
 ### Invoice preparation
 
@@ -146,8 +148,37 @@ Sign in through **Admin / Management** and open **Employee profiles**. Managemen
 3. Share that password securely with the employee; credentials are hashed with a random salt and are never returned by the API or sent by email.
 4. The employee can immediately sign in using **Employee / Trainer** or **Admin / Management**, as shown in the creation form for the selected role.
 5. Use **Edit profile** to update assignments/profile details, set a new password or deactivate an account. Deactivation blocks both new logins and authenticated requests from existing sessions. Administrators cannot deactivate/demote their own account, and the last active administrator is protected.
+6. **Delete profile** shows linked-record counts, then requires a separate final confirmation, typing the exact work email, and acknowledging history retention. Canceling either step changes nothing. Deletion removes access and hides the profile from active administration, directory, rankings and new assignment lists. Own/last-admin accounts and management boundaries remain protected. Invoice/attendance/leave/meeting/audit history and equipment custody records are retained; the work email remains reserved. This is portal removal (durable soft deletion), not erasure of financial history.
 
 A custom role is a named preset inheriting one of the existing `employee`, `trainer`, `manager` or `admin` permission levels—not an arbitrary new permission system. Custom names appear in profiles and the directory; server authorization and the two sign-in categories continue to use the assigned base permission level. Creating a role cannot bypass the shared base-role permission policy, including management restrictions on privileged assignments.
+
+### Role selection and department membership
+
+**Roles & permissions** has a role selector to inspect inherited permissions, custom-role checkboxes, **Select all custom roles**, individual **Delete role**, and batch **Delete selected**. Built-in Employee/Trainer/Management/Admin levels are protected. Deleting a custom preset first moves every linked profile (including historical profiles) to the corresponding built-in role without changing its base permissions. Removed catalog names may be reused under a new ID.
+
+**Departments → Add employees** lets management select a destination department, search and select existing staff, and add/move them in one validated batch. Profiles have one current department; the update is visible in the assignee’s profile and directory. **Delete department** requires moving every current/historical assignment to another department and retains at least one department. Only administrators can remove a department containing privileged profiles. A failed batch does not partially move its valid members.
+
+### Meetings with management
+
+The trainer Training sessions page is replaced by **Schedule a meeting with management**. Trainers select at least one active management/admin contact, a future local date/time, duration and optional agenda. Requests remain Pending until an invited manager or an administrator confirms them. Invitees receive notifications; confirmation is reflected in the trainer’s portal. Management meetings are visible only to their creator, participants and administrators. General management-created invitations and existing meeting history are preserved; employees cannot schedule meetings.
+
+### Equipment custody and employee portals
+
+**Equipment requests** and **Asset inventory → Add / assign equipment** support selecting an existing device or adding its name, type and unique serial, selecting an active employee/trainer, recording the issue date and setting In use / In repair. An approved request also offers **Record assignment**. Approval alone does not invent a device assignment. To add a new employee, use the editor’s shortcut to Employee profiles, then select the created profile on return.
+
+The admin and assignee screens use the same asset record, including serial, status and issue date. Reassignment removes the device from the previous owner and adds it to the new owner; **Unassigned / returned** clears its current owner and issue date. Notifications and an audit entry are saved. A removed profile’s equipment remains assigned until management explicitly records return/reassignment, so custody history is not silently lost. Existing-session refreshes pick up updates without signing out.
+
+### Actual-data charts and attendance ranking
+
+**Attendance ranking** is available to all roles, with a month selector, search and department filter. The server returns attendance summaries only, never another employee’s raw work logs, private leave reasons or invoice details. The UTC methodology and denominator are displayed on the page:
+
+- Rate = recorded days present ÷ scheduled elapsed workdays, excluding approved/logged leave and dates before joining. Workweek comes from organization settings (with an explicit Mon–Fri fallback if unrecognized). Today is provisional; holidays are not configured.
+- Repeated clock-ins count once per day using the earliest arrival. A five-minute grace period after the organization start time determines punctuality. Ties use punctuality then days present. Staff without recorded attendance are **Unranked**; a period with no eligible days shows **—**. Inactive/removed staff and management/admin profiles do not participate.
+- Department bars use total present staff-days ÷ total eligible staff-days on a fixed **0–100%** scale, with full names, exact percentages and denominators. No hardcoded performance scores remain in the page or reports endpoint.
+- Weekly work charts use the last seven UTC dates and exact recorded work durations. Past shifts without a clock-out are marked incomplete and excluded, rather than growing indefinitely. Today’s open shift is provisional. Multiple completed work sessions are summed.
+- Approved-invoice charts aggregate actual approvals chronologically by period, separate currencies with independent zero-based scales, and label exact amounts. They neither mix currencies nor treat approval as payment confirmation.
+
+The reusable chart keeps labels/values visible without hover, with a zero baseline and readable responsive horizontal bars. Reports retain activity tracking for management, labeling active share as **active ÷ (active + idle)** rather than a performance ranking.
 
 ## Demo accounts
 
@@ -175,17 +206,18 @@ npm exec --workspace client -- playwright install --with-deps chromium
 npm run test:e2e --workspace client
 ```
 
-The browser suite builds the client and starts Express on port 4173 with a disposable local JSON store; it never writes to a configured Supabase project. It covers invoice draft/edit/submit/PDF/approval, all four role-specific sidebars, responsive/mobile navigation, deep-link access guards, employee/trainer leave decisions by Daniel and Sara, focus and 30-second queue refresh, role/department/profile creation by authorized management, new-user sign-in/category rejection, trainer session confirmation, profile editing and deactivation. The backend tests run without a remote database; PGlite executes the real SQL migrations and normalized-store reads/writes in embedded PostgreSQL. To use a preinstalled browser, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (and optionally `PLAYWRIGHT_CHROMIUM_ARGS` as a JSON array).
+The browser suite builds the client and starts Express on port 4173 with a disposable local JSON store; it never writes to a configured Supabase project. It covers invoice draft/edit/submit/PDF/approval, all four role-specific sidebars, responsive/mobile navigation, deep-link access guards, employee/trainer leave decisions by Daniel and Sara, focus and 30-second queue refresh, role/department/profile creation by authorized management, new-user sign-in/category rejection, private management-meeting confirmation, double-confirm deletion/cancellation, role selection/removal, department membership/reassignment/removal, mirrored equipment assignment/reassignment, actual-data ranking/charts and mobile readability, profile editing and deactivation. The backend tests run without a remote database; PGlite executes the real SQL migrations and normalized-store reads/writes in embedded PostgreSQL. To use a preinstalled browser, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (and optionally `PLAYWRIGHT_CHROMIUM_ARGS` as a JSON array).
 
 ## API areas
 
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`
-- Attendance: clock-in/out, breaks, activity events, corrections, team status
+- Attendance: clock-in/out, breaks, activity events, corrections, team status; attendance-only summaries at `GET /api/attendance/rankings?month=YYYY-MM`
 - Invoices: `GET/POST /api/invoices`, `PUT /api/invoices/:id/draft`, `POST /api/invoices/:id/submit`, `GET /api/invoices/:id/pdf`, existing `PATCH /api/invoices/:id` decisions and `GET /api/invoices/:id/document` signed attachment URLs
 - Leave: `GET/POST /api/leaves`, management-scoped `PATCH /api/leaves/:id` decisions, own Pending withdrawal with `POST /api/leaves/:id/cancel`; creation/withdrawal are employee/trainer-only
 - Profile administration: `GET/POST /api/admin/users`, `PATCH /api/admin/users/:id`, `POST /api/admin/users/departments`; managers receive only manageable staff profiles and assignable employee/trainer role presets. `POST /api/admin/users/roles` and privileged role assignments require an administrator.
-- Meetings: scoped listing, trainer training-session requests and management scheduling/confirmation with `PATCH /api/meetings/:id`
-- Equipment: assets, multipart requests, management approvals, and signed attachment URLs
+- Lifecycle: `GET /api/admin/users/:id/deletion`, confirmed `DELETE /api/admin/users/:id`, administrator-only batch `DELETE /api/admin/users/roles`, `POST /api/admin/users/departments/:id/employees`, confirmed `DELETE /api/admin/users/departments/:id` with replacement
+- Meetings: scoped listing, trainer management-meeting requests and management scheduling/confirmation with `PATCH /api/meetings/:id`
+- Equipment: `POST /api/equipment/assets`, `PATCH /api/equipment/assets/:id` for validated custody/inventory updates; scoped assets, multipart requests, management approvals and signed attachment URLs
 - Workspace: consolidated `GET /api/portal`, dashboard, directory, reports, notifications, profile, administrator-only organization settings and audit log
 
 All routes validate request data with Zod. Protected routes enforce role-based access on the server—not only in the React UI.
@@ -199,6 +231,8 @@ The normalized `excellium_users.access_group` generated column provides a querya
 ## Workspace persistence
 
 With `PERSISTENCE_PROVIDER=supabase`, every domain workflow is stored in normalized Supabase Postgres tables with typed columns: users/profiles (including a generated access group), role presets, departments, leave requests, attendance, work sessions, break logs, activity heartbeats, coordinate samples, review flags, invoices and line items, meetings, equipment requests, assets, notification audiences/reads, settings, and audit entries. The first connected server start seeds an empty schema with the demo workspace; subsequent actions update the relevant typed rows. An existing legacy JSONB workspace is upgraded into these typed tables by the third migration before the server starts. The workflow migration backfills role/department assignments and invoice totals without replacing existing users, password hashes, attachments or historical invoices.
+
+Supabase writes use `excellium_persist_workspace`, a service-role-only PostgreSQL function. It writes typed rows, removal metadata, reassignments and audit entries in one transaction with a locked version check. A failed write rolls back every affected row; stale serverless snapshots receive HTTP 409 and must refresh/retry. Frequent heartbeats still write only changed typed activity rows. The JSON request payload is transport, not a stored workspace document.
 
 `PERSISTENCE_PROVIDER=json` remains available only as a local/test fallback. It writes `server/data/store.json`, which is ignored by Git.
 
@@ -253,9 +287,11 @@ SUPABASE_SIGNED_URL_TTL_SECONDS=300
    - `supabase/migrations/202611160007_add_access_group_organization.sql`
    - `supabase/migrations/202611170001_create_shared_auth_sessions.sql`
    - `supabase/migrations/202611170002_add_portal_workflows.sql`
+   - `supabase/migrations/202611170003_add_administration_lifecycle.sql`
+   - `supabase/migrations/202611170004_atomic_workspace_mutations.sql`
 5. Copy `server/.env.example` to `server/.env`, fill in the values, and restart the Express server. On Vercel, apply the workflow migration before deploying the matching branch; committing the SQL file alone does not update the database.
 
-The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The sixth permits a legitimate second work session after an employee clocks out on the same day. The seventh adds a generated Employee/Management access-group column and index. The eighth adds shared, server-only authentication sessions for independent Vercel instances. The ninth adds RLS-protected role/department catalogs, admin-managed profile fields, leave applications and invoice line items/drafts. New workflow tables grant access only to the server service role, while existing generated access groups remain unchanged. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in category- and owner-scoped private paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
+The first migration creates the locked-down, normalized Postgres tables that persist every portal workflow. The second creates the private `excellium-uploads` bucket. The third is safe on new installations; on older installations, it copies the retired JSONB workspace document into typed tables and deletes that document table. The fourth adds relational work sessions, 5/15-minute break logs, heartbeats, typed coordinate samples, anomaly flags, and typed audit-log links. The fifth marks prior-day sessions as clocked out without inventing an unknown clock-out timestamp. The sixth permits a legitimate second work session after an employee clocks out on the same day. The seventh adds a generated Employee/Management access-group column and index. The eighth adds shared, server-only authentication sessions for independent Vercel instances. The ninth adds RLS-protected role/department catalogs, admin-managed profile fields, leave applications and invoice line items/drafts. New workflow tables grant access only to the server service role, while existing generated access groups remain unchanged. The tenth adds durable portal-removal metadata, reusable catalog names and management-meeting fields without deleting existing records. The eleventh adds transactional typed writes and denies RPC execution to anonymous/browser roles. The application never sends the secret key to React. Express validates uploads in memory, stores valid files in category- and owner-scoped private paths, writes file metadata alongside the invoice/request record, and creates five-minute signed URLs only for the record owner or management.
 
 | Upload | Accepted format | Default maximum |
 | --- | --- | --- |

@@ -89,12 +89,12 @@ test('role-specific sidebars, actions, deep links and responsive navigation are 
       await expect(page.getByRole('button', { name: 'Prepare invoice', exact: true })).toHaveCount(management ? 0 : 1);
       await navigation(page, management ? 'Equipment requests' : 'My equipment');
       await expect(page.getByRole('button', { name: 'Request change', exact: true })).toHaveCount(management ? 0 : 1);
-      await navigation(page, management ? 'Meeting management' : role === 'trainer' ? 'Training sessions' : 'My meetings');
+      await navigation(page, management ? 'Meeting management' : role === 'trainer' ? 'Schedule a meeting with management' : 'My meetings');
       await expect(page.getByRole('button', { name: 'Schedule meeting', exact: true })).toHaveCount(management ? 1 : 0);
-      await expect(page.getByRole('button', { name: 'Request training session', exact: true })).toHaveCount(role === 'trainer' ? 1 : 0);
+      await expect(page.locator('main').getByRole('button', { name: 'Schedule a meeting with management', exact: true })).toHaveCount(role === 'trainer' ? 1 : 0);
       if (!management) {
         await page.goto('/#users');
-        await expect(page.getByRole('heading', { name: role === 'trainer' ? 'Training overview' : 'Good day, John', exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: role === 'trainer' ? 'Trainer overview' : 'Good day, John', exact: true })).toBeVisible();
         await expect(page).toHaveURL(/#dashboard$/);
         expect((await page.request.get('/api/admin/users')).status()).toBe(403);
       }
@@ -157,28 +157,31 @@ test('management creates an employee profile and the new account signs into only
   } finally { await context.close(); }
 });
 
-test('trainer requests a training session and management confirms it while employees have invitation-only access', async ({ page, browser }) => {
+test('trainer requests a management meeting and the invited manager confirms it; unrelated employees cannot see it', async ({ page, browser }) => {
   await signIn(page, 'priya@excellium.com');
-  await navigation(page, 'Training sessions');
-  await page.getByRole('button', { name: 'Request training session', exact: true }).click();
-  await page.getByLabel('Title', { exact: true }).fill('Role-separated onboarding session');
+  await navigation(page, 'Schedule a meeting with management');
+  await page.getByRole('button', { name: 'Schedule a meeting with management', exact: true }).last().click();
+  await page.getByLabel('Title', { exact: true }).fill('Trainer management planning meeting');
   await page.getByLabel('Date and time (your local time)', { exact: true }).fill('2026-12-21T10:00');
-  await page.getByLabel('Participants (optional)', { exact: true }).fill('john@excellium.com');
-  await page.getByRole('button', { name: 'Send session request', exact: true }).click();
+  await page.getByRole('checkbox', { name: /Daniel Okafor/ }).check();
+  await page.getByLabel('Duration', { exact: true }).selectOption('45');
+  await page.getByLabel('Agenda / notes (optional)', { exact: true }).fill('Discuss the next month’s staffing and equipment needs.');
+  await page.getByRole('button', { name: 'Send meeting request', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const manager = await anotherUser(browser, 'daniel@excellium.com', true);
   try {
     await navigation(manager.page, 'Meeting management');
-    const row = manager.page.getByRole('row').filter({ hasText: 'Role-separated onboarding session' });
+    const row = manager.page.getByRole('row').filter({ hasText: 'Trainer management planning meeting' });
     await expect(row).toContainText('Priya Nair');
-    await row.getByRole('button', { name: 'Confirm session', exact: true }).click();
+    await expect(row).toContainText('45 min');
+    await row.getByRole('button', { name: 'Confirm meeting', exact: true }).click();
     await expect(row).toHaveCount(0);
     await focusRefresh(page);
-    await expect(page.getByText('Role-separated onboarding session', { exact: true }).locator('..').locator('..')).toContainText('Confirmed');
+    await expect(page.getByText('Trainer management planning meeting', { exact: true }).locator('..').locator('..')).toContainText('Confirmed');
     const employee = await anotherUser(browser, 'john@excellium.com');
     try {
       await navigation(employee.page, 'My meetings');
-      await expect(employee.page.getByText('Role-separated onboarding session', { exact: true })).toBeVisible();
+      await expect(employee.page.getByText('Trainer management planning meeting', { exact: true })).toHaveCount(0);
       await expect(employee.page.getByRole('button', { name: 'Schedule meeting', exact: true })).toHaveCount(0);
     } finally { await employee.context.close(); }
   } finally { await manager.context.close(); }

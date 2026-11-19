@@ -46,7 +46,7 @@ export function LoginScreen({ onLogin, connectionError }) {
               Unified Enterprise Operations
             </span>
             <h1 className="m-0 mt-6 max-w-[12.5em] text-[38px] font-bold leading-[1.12] tracking-[-.02em] text-white md:text-[52px]">
-              One workspace for attendance, pay, performance and equipment.
+              One workspace for attendance, pay, meetings and equipment.
             </h1>
             <p className="m-0 mt-5 max-w-[32em] text-[15px] leading-relaxed text-[#a49dbd]">
               Choose your access category to see the tools and numbers that matter for your work.

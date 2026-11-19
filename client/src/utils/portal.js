@@ -3,19 +3,19 @@ export { can, canManagePerson, canReviewPerson, PERMISSION_LABELS, permissionsFo
 
 export const roleMeta = {
   employee: { label: 'Employee', description: 'Your personal workspace', email: 'john@excellium.com' },
-  trainer: { label: 'Trainer', description: 'Self-service and training sessions', email: 'priya@excellium.com' },
+  trainer: { label: 'Trainer', description: 'Self-service and management meetings', email: 'priya@excellium.com' },
   manager: { label: 'Management', description: 'Staff administration and approvals', email: 'daniel@excellium.com' },
   admin: { label: 'Administrator', description: 'Full workforce and access administration', email: 'sara@excellium.com' }
 };
 
 export const accessGroupMeta = {
-  employee: { label: 'Employee / Trainer', description: 'Your attendance, invoices, leave and training sessions', email: 'john@excellium.com' },
+  employee: { label: 'Employee / Trainer', description: 'Your attendance, invoices, leave and meetings', email: 'john@excellium.com' },
   management: { label: 'Admin / Management', description: 'Staff profiles, approvals and organization operations', email: 'sara@excellium.com' }
 };
 
 export const pageTitles = {
   dashboard: 'My overview', attendance: 'My attendance', invoices: 'My invoices', leaves: 'My leave',
-  meetings: 'My meetings', equipment: 'My equipment', directory: 'Staff directory', rankings: 'Performance and rankings',
+  meetings: 'My meetings', equipment: 'My equipment', directory: 'Staff directory', rankings: 'Attendance ranking',
   users: 'Employee profiles', roles: 'Roles & permissions', departments: 'Departments', assets: 'Asset inventory',
   reports: 'Workforce reports', organization: 'Organization settings', audit: 'Audit trail',
   notifications: 'Notifications', settings: 'My profile'
@@ -23,7 +23,7 @@ export const pageTitles = {
 
 export function pageTitle(page, role) {
   if (can(role, 'manageStaff')) return ({ dashboard: role === 'admin' ? 'Admin overview' : 'Management overview', attendance: 'Team attendance', invoices: 'Invoice approvals', leaves: 'Leave approvals', meetings: 'Meeting management', equipment: 'Equipment requests' })[page] ?? pageTitles[page];
-  if (role === 'trainer' && page === 'meetings') return 'Training sessions';
+  if (role === 'trainer' && page === 'meetings') return 'Schedule a meeting with management';
   return pageTitles[page];
 }
 
@@ -40,22 +40,12 @@ export function navigationFor(role) {
   return [
     group(role === 'trainer' ? 'Trainer workspace' : 'Employee workspace', ['dashboard']),
     group('My self-service', ['attendance', 'invoices', 'leaves', 'equipment']),
-    group(role === 'trainer' ? 'Training & workplace' : 'Workplace', ['meetings', 'rankings', 'directory']),
+    group(role === 'trainer' ? 'Meetings & workplace' : 'Workplace', ['meetings', 'rankings', 'directory']),
     group('My account', ['settings', 'notifications'])
   ];
 }
 
 export const allowedPages = (role) => navigationFor(role).flatMap((group) => group.pages);
-
-export const people = [
-  ['John Carter', 'Engineering', 'Present', 92], ['Aisha Khan', 'Design', 'Present', 96], ['Marcus Lee', 'Engineering', 'Late', 84], ['Elena Petrova', 'Finance', 'Present', 89],
-  ['Omar Siddiqui', 'Sales', 'Absent', 78], ['Grace Wu', 'Engineering', 'On leave', 91], ['Tom Becker', 'Operations', 'Present', 87], ['Priya Nair', 'Training', 'Present', 94]
-];
-
-export const attendanceLog = [
-  ['Fri 13 Nov', '09:02', '17:34', '8h 32m', 'On time'], ['Thu 12 Nov', '09:41', '17:10', '7h 29m', 'Late'],
-  ['Wed 11 Nov', '08:55', '16:20', '7h 25m', 'Early departure'], ['Tue 10 Nov', '08:58', '17:30', '8h 32m', 'On time'], ['Mon 9 Nov', '-', '-', '-', 'On leave']
-];
 
 export function initials(name) {
   return name.split(' ').map((part) => part[0]).join('');

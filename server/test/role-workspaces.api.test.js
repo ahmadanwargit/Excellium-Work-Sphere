@@ -84,7 +84,7 @@ test('server enforces separate self-service, trainer scheduling and management a
     for (const path of ['/api/admin/users', '/api/attendance/team', '/api/admin/reports/daily', '/api/audit-log']) assert.equal((await request(path, { cookie })).status, 403, path);
     assert.equal((await request('/api/leaves/missing', { method: 'PATCH', cookie, body: { status: 'Approved' } })).status, 403);
   }
-  const meeting = { title: 'Training request', startsAt: '2026-12-01T10:00:00.000Z', participants: 'john@excellium.com' };
+  const meeting = { title: 'Management meeting request', startsAt: '2026-12-01T10:00:00.000Z', participants: 'daniel@excellium.com' };
   assert.equal((await request('/api/meetings', { method: 'POST', cookie: staff, body: meeting })).status, 403);
   const created = await request('/api/meetings', { method: 'POST', cookie: trainer, body: meeting });
   assert.equal(created.status, 201);
@@ -181,7 +181,6 @@ test('live team and meeting views reflect approved leave, active profiles and ex
     data.attendance.push({ id: 'today_absence', userId: 'usr_CaseSensitive', date, clockIn: null, clockOut: null, breakMinutes: 0, activeSeconds: 0, idleSeconds: 0, status: 'Absent' });
   });
   const manager = await login('daniel@excellium.com', 'management');
-  const trainer = await login('priya@excellium.com');
   const cookie = await login('case.staff@example.test');
   const before = await (await request('/api/portal', { cookie: manager })).json();
   const applied = await request('/api/leaves', { method: 'POST', cookie, body: { ...leave, startDate: date, endDate: date } });
@@ -193,11 +192,11 @@ test('live team and meeting views reflect approved leave, active profiles and ex
   assert.equal(after.teamAttendance.records.find((record) => record.userId === 'usr_CaseSensitive').status, 'On leave');
   assert.ok(after.teamAttendance.records.every((record) => record.userId !== 'usr_InactiveStaff'));
   const meeting = { title: 'New staff training', startsAt: '2026-12-22T10:00:00.000Z', participants: ['usr_CaseSensitive', ' ', 'john@excellium.com'] };
-  const created = await request('/api/meetings', { method: 'POST', cookie: trainer, body: meeting });
+  const created = await request('/api/meetings', { method: 'POST', cookie: manager, body: meeting });
   assert.equal(created.status, 201);
   const session = (await created.json()).meeting;
   assert.ok(session.participants.includes('usr_CaseSensitive'));
-  assert.equal((await request('/api/meetings', { method: 'POST', cookie: trainer, body: { ...meeting, participants: ['usr_InactiveStaff'] } })).status, 400);
+  assert.equal((await request('/api/meetings', { method: 'POST', cookie: manager, body: { ...meeting, participants: ['usr_InactiveStaff'] } })).status, 400);
   const personalMeetings = await (await request('/api/meetings', { cookie })).json();
   assert.ok(personalMeetings.meetings.some((item) => item.id === session.id));
 });

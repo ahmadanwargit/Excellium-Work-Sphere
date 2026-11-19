@@ -88,12 +88,12 @@ export function serializeWorkspace(data) {
       standard_start_time: data.organization.standardStartTime,
       inactivity_lock_minutes: data.organization.inactivityLockMinutes
     },
-    roles: data.roles.map((role) => ({ id: role.id, name: role.name, base_role: role.baseRole, description: role.description ?? '', is_system: role.system, created_at: role.createdAt })),
-    departments: data.departments.map((department) => ({ id: department.id, name: department.name, created_at: department.createdAt })),
+    roles: data.roles.map((role) => ({ id: role.id, name: role.name, base_role: role.baseRole, description: role.description ?? '', is_system: role.system, created_at: role.createdAt, deleted_at: role.deletedAt, deleted_by: role.deletedBy })),
+    departments: data.departments.map((department) => ({ id: department.id, name: department.name, created_at: department.createdAt, deleted_at: department.deletedAt, deleted_by: department.deletedBy })),
     users: data.users.map((user) => ({
       id: user.id, email: user.email, name: user.name, role: user.role, title: user.title, department: user.department,
       password_salt: user.passwordSalt, password_hash: user.passwordHash, created_at: user.createdAt,
-      role_id: user.roleId, department_id: user.departmentId, phone: user.phone, start_date: user.startDate, is_active: user.active, updated_at: user.updatedAt ?? user.createdAt
+      role_id: user.roleId, department_id: user.departmentId, phone: user.phone, start_date: user.startDate, is_active: user.active, updated_at: user.updatedAt ?? user.createdAt, deleted_at: user.deletedAt, deleted_by: user.deletedBy
     })),
     leaves: data.leaveRequests.map((leave) => ({
       id: leave.id, employee_id: leave.employeeId, leave_type: leave.type, start_date: leave.startDate, end_date: leave.endDate, days: leave.days,
@@ -137,7 +137,7 @@ export function serializeWorkspace(data) {
     invoiceItems: data.invoices.flatMap((invoice) => (invoice.lineItems ?? []).map((item, position) => ({
       invoice_id: invoice.id, position, description: item.description, quantity: item.quantity, unit_rate: item.unitRate, amount: item.amount
     }))),
-    meetings: data.meetings.map((meeting) => ({ id: meeting.id, title: meeting.title, starts_at: meeting.startsAt, status: meeting.status, created_by: meeting.createdBy })),
+    meetings: data.meetings.map((meeting) => ({ id: meeting.id, title: meeting.title, starts_at: meeting.startsAt, status: meeting.status, created_by: meeting.createdBy, meeting_type: meeting.meetingType, duration_minutes: meeting.durationMinutes, notes: meeting.notes })),
     participants: data.meetings.flatMap((meeting) => meeting.participants.map((userId) => ({ meeting_id: meeting.id, user_id: userId }))),
     equipmentRequests: data.equipmentRequests.map((request) => ({
       id: request.id, employee_id: request.employeeId, item: request.item, request_type: request.type, reason: request.reason, status: request.status,
@@ -172,12 +172,12 @@ export function hydrateWorkspace(rows) {
       standardStartTime: String(settings.standard_start_time).slice(0, 5),
       inactivityLockMinutes: asNumber(settings.inactivity_lock_minutes)
     },
-    roles: rows.roles?.map((role) => ({ id: role.id, name: role.name, baseRole: role.base_role, description: role.description, system: role.is_system, createdAt: role.created_at })),
-    departments: rows.departments?.map((department) => ({ id: department.id, name: department.name, createdAt: department.created_at })),
+    roles: rows.roles?.map((role) => ({ id: role.id, name: role.name, baseRole: role.base_role, description: role.description, system: role.is_system, createdAt: role.created_at, deletedAt: role.deleted_at, deletedBy: role.deleted_by })),
+    departments: rows.departments?.map((department) => ({ id: department.id, name: department.name, createdAt: department.created_at, deletedAt: department.deleted_at, deletedBy: department.deleted_by })),
     users: rows.users.map((user) => ({
       id: user.id, email: user.email, name: user.name, role: user.role, accessGroup: user.access_group ?? accessGroupForRole(user.role), title: user.title, department: user.department,
       passwordSalt: user.password_salt, passwordHash: user.password_hash, createdAt: user.created_at,
-      roleId: user.role_id ?? user.role, departmentId: user.department_id, phone: user.phone, startDate: user.start_date, active: user.is_active, updatedAt: user.updated_at
+      roleId: user.role_id ?? user.role, departmentId: user.department_id, phone: user.phone, startDate: user.start_date, active: user.is_active, updatedAt: user.updated_at, deletedAt: user.deleted_at, deletedBy: user.deleted_by
     })),
     leaveRequests: (rows.leaves ?? []).map((leave) => ({
       id: leave.id, employeeId: leave.employee_id, type: leave.leave_type, startDate: leave.start_date, endDate: leave.end_date, days: asNumber(leave.days), reason: leave.reason,
@@ -220,7 +220,7 @@ export function hydrateWorkspace(rows) {
       lineItems: (itemsByInvoice.get(invoice.id) ?? []).sort((a, b) => a.position - b.position).map((item) => ({ description: item.description, quantity: asNumber(item.quantity), unitRate: asNumber(item.unit_rate), amount: asNumber(item.amount) }))
     })),
     meetings: rows.meetings.map((meeting) => ({
-      id: meeting.id, title: meeting.title, startsAt: meeting.starts_at, status: meeting.status, createdBy: meeting.created_by,
+      id: meeting.id, title: meeting.title, startsAt: meeting.starts_at, status: meeting.status, createdBy: meeting.created_by, meetingType: meeting.meeting_type, durationMinutes: asNumber(meeting.duration_minutes), notes: meeting.notes,
       participants: (participantsByMeeting.get(meeting.id) ?? []).map((item) => item.user_id)
     })),
     equipmentRequests: rows.equipmentRequests.map((request) => ({
@@ -247,6 +247,7 @@ export class SupabaseRelationalStore {
     this.client = client;
     this.data = null;
     this.version = 0;
+    this.mutationQueue = Promise.resolve();
   }
 
   async initialise() {
@@ -302,13 +303,31 @@ export class SupabaseRelationalStore {
     if (!data || asNumber(data.version) !== expectedVersion) throw new HttpError(409, 'Workspace data changed elsewhere. Please retry your action.');
   }
 
+  async persistAtomic(rows, { expectedVersion, nextVersion, removedInvoiceItems = [] }) {
+    const { error } = await this.client.rpc('excellium_persist_workspace', {
+      p_expected_version: expectedVersion, p_next_version: nextVersion, p_rows: rows, p_removed_invoice_items: removedInvoiceItems
+    });
+    if (error?.code === '40001' || error?.code === '23505') throw new HttpError(409, 'Workspace data changed elsewhere. Refresh and retry your action.');
+    if (error) throw new Error(`Unable to persist atomic workspace changes: ${error.message}`);
+  }
+
   async persistAll({ expectedVersion, nextVersion, previousData }) {
-    await this.assertVersion(expectedVersion);
     const rows = serializeWorkspace(this.data);
+    if (typeof this.client.rpc === 'function') {
+      const nextKeys = new Set(rows.invoiceItems.map((item) => `${item.invoice_id}:${item.position}`));
+      const removedInvoiceItems = previousData ? serializeWorkspace(previousData).invoiceItems.filter((item) => !nextKeys.has(`${item.invoice_id}:${item.position}`)).map(({ invoice_id, position }) => ({ invoice_id, position })) : [];
+      await this.persistAtomic(rows, { expectedVersion, nextVersion, removedInvoiceItems });
+      return;
+    }
+    // Lightweight adapter doubles retain the relational transport path. The
+    // real Supabase client always uses the atomic Postgres function above.
+    await this.assertVersion(expectedVersion);
 
     // Parent entities are saved first so every foreign key remains valid.
-    await this.upsert(TABLE.roles, rows.roles);
-    await this.upsert(TABLE.departments, rows.departments);
+    await this.upsert(TABLE.roles, rows.roles.filter((row) => row.deleted_at));
+    await this.upsert(TABLE.roles, rows.roles.filter((row) => !row.deleted_at));
+    await this.upsert(TABLE.departments, rows.departments.filter((row) => row.deleted_at));
+    await this.upsert(TABLE.departments, rows.departments.filter((row) => !row.deleted_at));
     await this.upsert(TABLE.users, rows.users);
     await this.upsert(TABLE.workSessions, rows.workSessions);
     await Promise.all([
@@ -358,7 +377,7 @@ export class SupabaseRelationalStore {
   }
 
   async persistActivityChanges(snapshot, { expectedVersion, nextVersion }) {
-    await this.assertVersion(expectedVersion);
+    if (typeof this.client.rpc !== 'function') await this.assertVersion(expectedVersion);
     const previous = serializeWorkspace(snapshot);
     const current = serializeWorkspace(this.data);
     const workSessions = changedRows(previous.workSessions, current.workSessions);
@@ -368,6 +387,10 @@ export class SupabaseRelationalStore {
     const heartbeats = changedRows(previous.heartbeats, current.heartbeats);
     const samples = changedRows(previous.samples, current.samples);
     const audit = changedRows(previous.audit, current.audit);
+    if (typeof this.client.rpc === 'function') {
+      await this.persistAtomic({ settings: current.settings, workSessions, attendance, breakLogs, flags, heartbeats, samples, audit }, { expectedVersion, nextVersion });
+      return;
+    }
 
     // Heartbeats are frequent. Persist only the typed rows touched by this
     // heartbeat instead of repeatedly upserting the complete workspace.
@@ -382,33 +405,22 @@ export class SupabaseRelationalStore {
     await this.persistSettingsVersion(current.settings, { expectedVersion, nextVersion });
   }
 
-  async mutate(callback) {
-    const snapshot = clone(this.data);
-    const version = this.version;
-    try {
-      const result = callback(this.data);
-      await this.persistAll({ expectedVersion: version, nextVersion: version + 1, previousData: snapshot });
-      this.version += 1;
-      return result;
-    } catch (error) {
-      this.data = snapshot;
-      this.version = version;
-      throw error;
-    }
+  queueMutation(callback, activityOnly = false) {
+    const mutation = this.mutationQueue.then(async () => {
+      const snapshot = clone(this.data);
+      const version = this.version;
+      try {
+        const result = callback(this.data);
+        if (activityOnly) await this.persistActivityChanges(snapshot, { expectedVersion: version, nextVersion: version + 1 });
+        else await this.persistAll({ expectedVersion: version, nextVersion: version + 1, previousData: snapshot });
+        this.version = version + 1;
+        return result;
+      } catch (error) { this.data = snapshot; this.version = version; throw error; }
+    });
+    this.mutationQueue = mutation.catch(() => {});
+    return mutation;
   }
 
-  async mutateActivity(callback) {
-    const snapshot = clone(this.data);
-    const version = this.version;
-    try {
-      const result = callback(this.data);
-      await this.persistActivityChanges(snapshot, { expectedVersion: version, nextVersion: version + 1 });
-      this.version += 1;
-      return result;
-    } catch (error) {
-      this.data = snapshot;
-      this.version = version;
-      throw error;
-    }
-  }
+  mutate(callback) { return this.queueMutation(callback); }
+  mutateActivity(callback) { return this.queueMutation(callback, true); }
 }

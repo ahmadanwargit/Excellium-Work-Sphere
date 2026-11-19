@@ -145,7 +145,7 @@ test('admin creates a department, role and profile; the new employee can sign in
   const employee = await context.newPage();
   try {
     await signIn(employee, 'browser.employee@excellium.com', false, 'BrowserTest!234');
-    await expect(employee.getByRole('heading', { name: 'Training overview' })).toBeVisible();
+    await expect(employee.getByRole('heading', { name: 'Trainer overview' })).toBeVisible();
     await expect(employee.locator('nav').getByRole('button', { name: 'Employee profiles' })).toHaveCount(0);
     await navigation(employee, 'My invoices');
     await expect(employee.getByRole('button', { name: 'Prepare invoice', exact: true })).toBeVisible();

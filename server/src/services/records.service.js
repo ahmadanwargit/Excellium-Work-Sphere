@@ -66,23 +66,28 @@ function durationLabel(seconds) {
 
 export function formatAttendance(data, attendance) {
   const employee = findUser(data, attendance.userId);
-  const elapsedSeconds = attendance.clockIn && !attendance.clockOut
-    ? Math.max(0, Math.floor((Date.now() - new Date(attendance.clockIn).getTime()) / 1000))
-    : 0;
-  const workedSeconds = attendance.clockIn
-    ? (attendance.clockOut
-      ? Math.max(0, Math.floor((new Date(attendance.clockOut) - new Date(attendance.clockIn)) / 1000) - attendance.breakMinutes * 60)
-      : Math.max(0, elapsedSeconds - attendance.breakMinutes * 60))
-    : 0;
+  const now = Date.now();
+  const endOfDay = new Date(`${attendance.date}T00:00:00Z`).getTime() + 86_400_000;
+  const duration = (clockIn, clockOut, breakSeconds) => Math.max(0, Math.floor((Math.min(clockOut ? new Date(clockOut).getTime() : now, endOfDay) - new Date(clockIn).getTime()) / 1000) - (breakSeconds || 0));
+  const sessions = (data.workSessions ?? []).filter((session) => session.userId === attendance.userId && session.workDate === attendance.date);
+  const incomplete = now >= endOfDay && (sessions.length ? sessions.some((session) => !session.clockOut) : Boolean(attendance.clockIn && !attendance.clockOut));
+  const ongoingBreakSeconds = (startedAt) => startedAt ? Math.max(0, Math.floor((Math.min(now, endOfDay) - new Date(startedAt).getTime()) / 1000)) : 0;
+  const workedSeconds = sessions.length
+    ? sessions.reduce((sum, session) => {
+      const activeBreak = (data.breakLogs ?? []).find((item) => item.sessionId === session.id && !item.endedAt);
+      return sum + duration(session.clockIn, session.clockOut, (session.breakSeconds || 0) + ongoingBreakSeconds(activeBreak?.startedAt));
+    }, 0)
+    : attendance.clockIn ? duration(attendance.clockIn, attendance.clockOut, attendance.breakMinutes * 60 + ongoingBreakSeconds(attendance.breakStartedAt)) : 0;
 
   return {
     ...attendance,
     employee: publicPerson(employee),
-    workedMinutes: Math.round(workedSeconds / 60),
-    workedLabel: durationLabel(workedSeconds),
-    activeLabel: durationLabel((attendance.activeSeconds || 0) + (attendance.clockOut ? 0 : elapsedSeconds)),
+    incomplete,
+    workedMinutes: incomplete ? null : Math.round(workedSeconds / 60),
+    workedLabel: incomplete ? 'Incomplete · no clock-out' : durationLabel(workedSeconds),
+    activeLabel: durationLabel(attendance.activeSeconds || 0),
     idleLabel: durationLabel(attendance.idleSeconds || 0),
-    live: Boolean(attendance.clockIn && !attendance.clockOut)
+    live: Boolean(attendance.clockIn && !attendance.clockOut && now < endOfDay)
   };
 }
 

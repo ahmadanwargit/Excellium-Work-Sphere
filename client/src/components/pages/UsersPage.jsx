@@ -3,6 +3,7 @@ import { Button, DataTable, EmptyState, MetricCard, Modal, PageHeading, Panel } 
 import { StatusBadge } from '../common/StatusBadge';
 import { can, permissionsFor, PERMISSION_LABELS, roleMeta } from '../../utils/portal';
 import { formErrorMessage } from '../../utils/workflows';
+import { DepartmentDeleteDialog, DepartmentMembersDialog, ProfileDeleteDialog, RoleDeleteDialog } from './PeopleAdministrationDialogs';
 
 export function UsersPage({ user, administration, actions, onError, section = 'Users' }) {
   const { users, roles, departments } = administration;
@@ -16,6 +17,16 @@ export function UsersPage({ user, administration, actions, onError, section = 'U
   const [newDepartment, setNewDepartment] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [deletingProfile, setDeletingProfile] = useState(null);
+  const [selectedRoles, setSelectedRoles] = useState([]);
+  const [roleDetails, setRoleDetails] = useState('employee');
+  const [deletingRoles, setDeletingRoles] = useState(null);
+  const [memberDepartment, setMemberDepartment] = useState(null);
+  const [deletingDepartment, setDeletingDepartment] = useState(null);
+  const customRoles = roles.filter((role) => !role.system);
+  const viewedRole = roles.find((role) => role.id === roleDetails) ?? roles[0];
+  const selectedCustomRoles = customRoles.filter((role) => selectedRoles.includes(role.id));
+  const finish = (message) => { setDeletingProfile(null); setDeletingRoles(null); setDeletingDepartment(null); setMemberDepartment(null); setSelectedRoles([]); onError(message); };
   const results = useMemo(() => users.filter((item) => `${item.name} ${item.email} ${item.title}`.toLowerCase().includes(query.toLowerCase()) && (!departmentFilter || item.departmentId === departmentFilter) && (!roleFilter || item.roleId === roleFilter)), [users, query, departmentFilter, roleFilter]);
   const selectedRole = roles.find((role) => role.id === profile?.roleId);
   const startCreate = () => {
@@ -47,7 +58,7 @@ export function UsersPage({ user, administration, actions, onError, section = 'U
   };
 
   return <>
-    <PageHeading title={tab === 'Users' ? 'Employee profiles' : tab === 'Roles' ? 'Roles & permissions' : 'Departments'} description={tab === 'Users' ? (canManageRoles ? 'Create employee, trainer and management portals. Assign roles, departments and account access.' : 'Create and manage employee / trainer profiles. Privileged roles and administrator accounts are reserved for full administrators.') : tab === 'Roles' ? 'Create named role presets with an explicit, server-enforced permission level.' : 'Create departments and use them when assigning employee profiles.'} action={<Button variant="primary" onClick={startCreate}>Create employee profile</Button>} />
+    <PageHeading title={tab === 'Users' ? 'Employee profiles' : tab === 'Roles' ? 'Roles & permissions' : 'Departments'} description={tab === 'Users' ? (canManageRoles ? 'Create employee, trainer and management portals. Assign roles, departments and account access.' : 'Create and manage employee / trainer profiles. Privileged roles and administrator accounts are reserved for full administrators.') : tab === 'Roles' ? 'Create named role presets with an explicit, server-enforced permission level.' : 'Select a department to add or move employees. Remove departments safely by moving all existing assignments.'} action={<Button variant="primary" onClick={startCreate}>Create employee profile</Button>} />
     <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3"><MetricCard label="Active users" value={users.filter((item) => item.active !== false).length} detail={`${users.length} total profiles`} /><MetricCard label="Roles" value={roles.length} detail="Named presets with explicit permission levels" /><MetricCard label="Departments" value={departments.length} detail="Available during profile creation" /></div>
     {tab === 'Users' && <Panel title="User profiles">
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"><input aria-label="Search users" className="field-control" placeholder="Search name, email or job title" value={query} onChange={(event) => setQuery(event.target.value)} /><select aria-label="Filter users by role" className="field-control" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="">All roles</option>{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select><select aria-label="Filter users by department" className="field-control" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="">All departments</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></div>
@@ -55,14 +66,23 @@ export function UsersPage({ user, administration, actions, onError, section = 'U
         <span key="name"><b>{item.name}</b><small className="block text-muted">{item.email}</small><small className="block text-muted">{item.title}</small></span>, item.roleName ?? roleMeta[item.role].label, item.department,
         item.accessGroup === 'management' ? 'Admin / Management' : 'Employee / Trainer',
         <StatusBadge key="status" status={item.active !== false ? 'Active' : 'Offline'}>{item.active !== false ? 'Active' : 'Inactive'}</StatusBadge>,
-        <Button small key="edit" onClick={() => editProfile(item)}>Edit profile</Button>
+        <span key="actions" className="flex flex-wrap gap-2"><Button small onClick={() => editProfile(item)}>Edit profile</Button><Button small variant="danger" disabled={item.id === user.id} title={item.id === user.id ? 'You cannot delete your own profile' : 'Two confirmations required'} onClick={() => setDeletingProfile(item)}>Delete profile</Button></span>
       ] }))} /> : <EmptyState>No profiles match your filters.</EmptyState>}
     </Panel>}
-    {canManageRoles && tab === 'Roles' && <Panel title="Roles and permissions" action={<Button variant="primary" onClick={() => { setError(''); setNewRole({ name: '', baseRole: 'employee', description: '' }); }}>Create role</Button>}>
-      <p className="mb-4 text-muted">Employees and trainers have self-service tools. Management reviews staff requests and administers employee / trainer profiles. Only administrators can assign privileged roles, create role presets, change organization settings or view the full audit trail.</p>
-      <DataTable headings={['Role', 'Permission level', 'Users', 'Description']} rows={roles.map((role) => ({ id: role.id, cells: [<span key="name"><b>{role.name}</b>{role.system && <small className="block text-muted">Built-in role</small>}</span>, roleMeta[role.baseRole].label, users.filter((item) => item.roleId === role.id).length, <span key="description" className="inline-block max-w-[360px] whitespace-normal">{role.description}</span>] }))} />
-    </Panel>}
-    {tab === 'Departments' && <Panel title="Departments" action={<Button variant="primary" onClick={() => { setError(''); setNewDepartment(''); }}>Create department</Button>}><DataTable headings={['Department', 'Users']} rows={departments.map((department) => ({ id: department.id, cells: [department.name, users.filter((item) => item.departmentId === department.id).length] }))} /></Panel>}
+    {canManageRoles && tab === 'Roles' && <>
+      <Panel title="Roles and permissions" action={<div className="flex flex-wrap gap-2"><Button variant="danger" disabled={!selectedCustomRoles.length} onClick={() => setDeletingRoles(selectedCustomRoles)}>Delete selected ({selectedCustomRoles.length})</Button><Button variant="primary" onClick={() => { setError(''); setNewRole({ name: '', baseRole: 'employee', description: '' }); }}>Create role</Button></div>}>
+        <p className="mb-4 text-xs leading-relaxed text-muted">Select custom roles for deletion or inspect a role’s permissions below. Assigned profiles move to their built-in role without changing permissions. Built-in access levels are protected.</p>
+        <label className="mb-4 flex items-center gap-2 text-xs"><input type="checkbox" aria-label="Select all custom roles" disabled={!customRoles.length} checked={Boolean(customRoles.length && selectedCustomRoles.length === customRoles.length)} onChange={(event) => setSelectedRoles(event.target.checked ? customRoles.map((role) => role.id) : [])} />Select all custom roles</label>
+        <DataTable headings={['Select', 'Role', 'Permission level', 'Users', 'Description', 'Actions']} rows={roles.map((role) => ({ id: role.id, cells: [<input key="select" type="checkbox" aria-label={`Select role ${role.name}`} disabled={role.system} checked={selectedRoles.includes(role.id)} onChange={(event) => setSelectedRoles(event.target.checked ? [...selectedRoles, role.id] : selectedRoles.filter((id) => id !== role.id))} />, <span key="name"><b>{role.name}</b>{role.system && <small className="block text-muted">Built-in · protected</small>}</span>, roleMeta[role.baseRole].label, role.memberCount ?? users.filter((item) => item.roleId === role.id).length, <span key="description" className="inline-block max-w-[300px] whitespace-normal">{role.description}</span>, <span key="actions" className="flex flex-wrap gap-2"><Button small onClick={() => setRoleDetails(role.id)}>View permissions</Button><Button small variant="danger" disabled={role.system} onClick={() => setDeletingRoles([role])}>Delete role</Button></span>] }))} />
+      </Panel>
+      {viewedRole && <div className="mt-4"><Panel title="Selected role permissions"><label className="field-label !mt-0" htmlFor="role-inspect">Select role</label><select id="role-inspect" className="field-control max-w-sm" value={viewedRole.id} onChange={(event) => setRoleDetails(event.target.value)}>{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select><p className="text-xs text-muted">Permission level: <b>{roleMeta[viewedRole.baseRole].label}</b>. Names never grant extra permissions.</p><ul className="space-y-2 pl-5 text-xs text-muted">{permissionsFor(viewedRole.baseRole).map((permission) => <li key={permission}>{PERMISSION_LABELS[permission]}</li>)}</ul></Panel></div>}
+    </>}
+    {tab === 'Departments' && <Panel title="Departments" action={<div className="flex flex-wrap gap-2"><Button onClick={() => setMemberDepartment('')}>Add employees</Button><Button variant="primary" onClick={() => { setError(''); setNewDepartment(''); }}>Create department</Button></div>}><DataTable headings={['Department', 'Profiles', 'Actions']} rows={departments.map((department) => ({ id: department.id, cells: [department.name, department.memberCount ?? users.filter((item) => item.departmentId === department.id).length, <span key="actions" className="flex flex-wrap gap-2"><Button small onClick={() => setMemberDepartment(department.id)}>Add employees</Button><Button small variant="danger" disabled={!department.canDelete} title={!department.canDelete ? 'Keep at least one department. Only administrators can remove departments containing privileged profiles.' : 'Move existing assignments before removal'} onClick={() => setDeletingDepartment(department)}>Delete department</Button></span>] }))} /><p className="mb-0 mt-4 text-xs text-muted">Each profile has one department. Adding an existing employee moves them from their previous department. Deletion preserves work history and requires a replacement for linked profiles.</p></Panel>}
+
+    {deletingProfile && <ProfileDeleteDialog person={deletingProfile} actions={actions} onClose={() => setDeletingProfile(null)} onDone={finish} />}
+    {deletingRoles && <RoleDeleteDialog roles={deletingRoles} actions={actions} onClose={() => setDeletingRoles(null)} onDone={finish} />}
+    {memberDepartment !== null && <DepartmentMembersDialog initialId={memberDepartment || undefined} users={users} departments={departments} actions={actions} onClose={() => setMemberDepartment(null)} onDone={finish} />}
+    {deletingDepartment && <DepartmentDeleteDialog department={deletingDepartment} departments={departments} actions={actions} onClose={() => setDeletingDepartment(null)} onDone={finish} />}
 
     {profile && <Modal wide title={profile.id ? 'Edit employee profile' : 'Create employee profile'} confirmLabel={profile.id ? 'Save profile' : 'Create portal'} busy={busy} onClose={() => setProfile(null)} onConfirm={saveProfile}>
       <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">

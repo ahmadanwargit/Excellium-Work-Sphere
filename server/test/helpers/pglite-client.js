@@ -4,6 +4,13 @@ const quote = (identifier) => `"${identifier.replaceAll('"', '""')}"`;
 
 export function postgresClient(database) {
   return {
+    async rpc(name, parameters) {
+      if (name !== 'excellium_persist_workspace') return { data: null, error: { code: '42883', message: 'Unknown RPC' } };
+      try {
+        const result = await database.query('select public.excellium_persist_workspace($1::bigint, $2::bigint, $3::jsonb, $4::jsonb) as version', [parameters.p_expected_version, parameters.p_next_version, JSON.stringify(parameters.p_rows), JSON.stringify(parameters.p_removed_invoice_items ?? [])]);
+        return { data: Number(result.rows[0].version), error: null };
+      } catch (error) { return { data: null, error: { code: error.code, message: error.message } }; }
+    },
     from(table) {
       let operation = 'select';
       let payload;

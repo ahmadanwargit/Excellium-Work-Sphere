@@ -64,10 +64,10 @@ export function ReportsPage({ onError }) {
   };
 
   return <>
-    <PageHeading title="End-of-day activity" description="Session, break, activity and review signals by employee." action={<div className="flex flex-wrap gap-2"><input className="field-control !w-auto !py-2" type="date" value={date} onChange={(event) => setDate(event.target.value)} /><Button variant="primary" onClick={exportCsv}>Download CSV</Button></div>} />
+    <PageHeading title="End-of-day activity" description="Recorded session, break and activity signals by employee. Active share is active time ÷ (active + idle tracked time), not a performance ranking." action={<div className="flex flex-wrap gap-2"><input className="field-control !w-auto !py-2" type="date" value={date} onChange={(event) => setDate(event.target.value)} /><Button variant="primary" onClick={exportCsv}>Download CSV</Button></div>} />
     <Panel title={`Daily summary · ${date}`} action={loading ? <small className="text-muted">Loading…</small> : <small className="text-muted">{reports.length} employees</small>}>
       <DataTable
-        headings={['Employee', 'In', 'Out', 'Shift', 'Active', 'Idle', 'Breaks', 'Score', 'Flags', 'Timeline']}
+        headings={['Employee', 'In', 'Out', 'Shift', 'Active', 'Idle', 'Breaks', 'Active share', 'Flags', 'Timeline']}
         rows={reports.map((report) => ({
           id: report.employee.id,
           cells: [

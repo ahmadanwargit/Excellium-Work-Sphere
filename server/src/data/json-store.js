@@ -15,6 +15,7 @@ export class JsonStore {
     this.filePath = filePath;
     this.data = null;
     this.writeQueue = Promise.resolve();
+    this.mutationQueue = Promise.resolve();
   }
 
   async initialise() {
@@ -44,7 +45,7 @@ export class JsonStore {
 
   async save() {
     const snapshot = JSON.stringify(this.data, null, 2);
-    this.writeQueue = this.writeQueue.then(async () => {
+    this.writeQueue = this.writeQueue.catch(() => {}).then(async () => {
       const temporaryFile = `${this.filePath}.tmp`;
       await writeFile(temporaryFile, snapshot, 'utf8');
       await rename(temporaryFile, this.filePath);
@@ -52,9 +53,16 @@ export class JsonStore {
     return this.writeQueue;
   }
 
-  async mutate(callback) {
-    const result = callback(this.data);
-    await this.save();
-    return result;
+  mutate(callback) {
+    const mutation = this.mutationQueue.then(async () => {
+      const previous = structuredClone(this.data);
+      try {
+        const result = callback(this.data);
+        await this.save();
+        return result;
+      } catch (error) { this.data = previous; throw error; }
+    });
+    this.mutationQueue = mutation.catch(() => {});
+    return mutation;
   }
 }

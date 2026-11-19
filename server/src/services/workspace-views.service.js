@@ -1,8 +1,9 @@
-import { can, canManagePerson, canReviewPerson, assignableRoles, isStaffRole } from '../../../shared/access-control.mjs';
+import { can, canManagePerson, canReviewPerson, assignableRoles, isStaffRole, isAvailablePerson } from '../../../shared/access-control.mjs';
 import { env } from '../config/env.js';
 import { currentActivitySession, ensureWorkSessionCollections } from './activity.service.js';
 import { formatAsset, formatAttendance, formatEquipmentRequest, formatInvoice, formatMeeting, publicUser, publicPerson, visibleNotifications, findUser } from './records.service.js';
 import { currentDateKey } from '../utils/ids.js';
+import { attendanceRanking } from './attendance-ranking.service.js';
 
 const newest = (left, right) => String(right.createdAt ?? right.submittedAt ?? '').localeCompare(String(left.createdAt ?? left.submittedAt ?? ''));
 const managedOwner = (data, actor, id) => canManagePerson(actor, findUser(data, id));
@@ -20,24 +21,30 @@ export function invoiceList(data, actor) {
 
 export function equipmentView(data, actor) {
   return {
-    assets: data.assets.filter((asset) => can(actor, 'inventory') || asset.assignedTo === actor.id).map((asset) => formatAsset(data, asset)),
+    assets: data.assets.filter((asset) => can(actor, 'inventory') || asset.assignedTo === actor.id).map((asset) => ({ ...formatAsset(data, asset), canEdit: can(actor, 'assignEquipment') && (!asset.assignedTo || canManagePerson(actor, findUser(data, asset.assignedTo))) })),
+    assignees: can(actor, 'assignEquipment') ? data.users.filter((person) => isAvailablePerson(person) && isStaffRole(person.role) && canManagePerson(actor, person)).map(publicPerson) : [],
     requests: data.equipmentRequests.filter((item) => item.employeeId === actor.id || (can(actor, 'reviewEquipment') && managedOwner(data, actor, item.employeeId)))
       .map((item) => ({ ...formatEquipmentRequest(data, item), canReview: can(actor, 'reviewEquipment') && canReviewPerson(actor, findUser(data, item.employeeId)) })).sort(newest)
   };
 }
 
+export const canConfirmMeeting = (meeting, actor) => can(actor, 'teamAttendance') && meeting.status === 'Pending' && (actor.role === 'admin' || meeting.meetingType !== 'Management' || meeting.participants.includes(actor.id));
+
 export function meetingList(data, actor) {
-  return data.meetings.filter((meeting) => can(actor, 'teamAttendance') || meeting.createdBy === actor.id || meeting.participants.includes(actor.id))
-    .map((meeting) => formatMeeting(data, meeting)).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  return data.meetings.filter((meeting) => actor.role === 'admin' || (can(actor, 'teamAttendance') && meeting.meetingType !== 'Management') || meeting.createdBy === actor.id || meeting.participants.includes(actor.id))
+    .map((meeting) => ({ ...formatMeeting(data, meeting), canConfirm: canConfirmMeeting(meeting, actor) })).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 
 export function administrationView(data, actor) {
   if (!can(actor, 'manageStaff')) return { users: [], roles: [], departments: [] };
   const bases = assignableRoles(actor);
   return {
-    users: data.users.filter((person) => canManagePerson(actor, person)).map(publicUser).sort((a, b) => a.name.localeCompare(b.name)),
-    roles: data.roles.filter((role) => bases.includes(role.baseRole)),
-    departments: [...data.departments].sort((a, b) => a.name.localeCompare(b.name))
+    users: data.users.filter((person) => !person.deletedAt && canManagePerson(actor, person)).map(publicUser).sort((a, b) => a.name.localeCompare(b.name)),
+    roles: data.roles.filter((role) => !role.deletedAt && bases.includes(role.baseRole)).map((role) => ({ ...role, memberCount: data.users.filter((person) => !person.deletedAt && person.roleId === role.id).length })),
+    departments: data.departments.filter((item) => !item.deletedAt).map((item) => {
+      const members = data.users.filter((person) => person.departmentId === item.id);
+      return { ...item, memberCount: members.filter((person) => !person.deletedAt).length, assignmentCount: members.length, canDelete: data.departments.filter((entry) => !entry.deletedAt).length > 1 && members.every((person) => canManagePerson(actor, person)) };
+    }).sort((a, b) => a.name.localeCompare(b.name))
   };
 }
 
@@ -56,7 +63,7 @@ export function personalAttendance(data, actor) {
 }
 
 export function teamAttendance(data, actor, date = currentDateKey()) {
-  const records = data.users.filter((person) => person.active !== false && isStaffRole(person.role) && canManagePerson(actor, person)).map((person) => {
+  const records = data.users.filter((person) => isAvailablePerson(person) && isStaffRole(person.role) && canManagePerson(actor, person)).map((person) => {
     const actual = data.attendance.find((record) => record.userId === person.id && record.date === date);
     const approvedLeave = data.leaveRequests.some((leave) => leave.employeeId === person.id && leave.status === 'Approved' && leave.startDate <= date && leave.endDate >= date);
     const record = actual ? { ...actual, ...(!actual.clockIn && approvedLeave ? { status: 'On leave' } : {}) } : { id: `absent-${person.id}-${date}`, userId: person.id, date, clockIn: null, clockOut: null, breakMinutes: 0, activeSeconds: 0, idleSeconds: 0, status: approvedLeave ? 'On leave' : 'Absent' };
@@ -73,7 +80,7 @@ export function dashboardSummary(data, actor) {
   const team = teamAttendance(data, actor).records;
   const pending = (items) => items.filter((item) => item.status === 'Pending' && item.canReview).length;
   return {
-    totalEmployees: team.length, departmentCount: data.departments.length,
+    totalEmployees: team.length, departmentCount: data.departments.filter((item) => !item.deletedAt).length,
     present: team.filter((item) => item.clockIn).length, late: team.filter((item) => item.status === 'Late').length,
     absent: team.filter((item) => item.status === 'Absent').length, onLeave: team.filter((item) => item.status === 'On leave').length,
     pendingLeaves: pending(leaveList(data, actor)), pendingInvoices: pending(invoiceList(data, actor)), pendingEquipmentRequests: pending(equipmentView(data, actor).requests),
@@ -95,7 +102,8 @@ export function portalView(data, actor) {
     attendance: can(actor, 'selfService') ? personalAttendance(data, actor) : null,
     teamAttendance: can(actor, 'teamAttendance') ? teamAttendance(data, actor) : null,
     invoices: invoiceList(data, actor), leaves: leaveList(data, actor), meetings: meetingList(data, actor), equipment: equipmentView(data, actor), notifications,
-    directory: data.users.filter((person) => person.active !== false).map(publicPerson),
+    directory: data.users.filter(isAvailablePerson).map(publicPerson),
+    rankings: attendanceRanking(data),
     administration: administrationView(data, actor), organization: can(actor, 'organization') ? data.organization : null,
     auditLog: can(actor, 'audit') ? auditView(data) : []
   };

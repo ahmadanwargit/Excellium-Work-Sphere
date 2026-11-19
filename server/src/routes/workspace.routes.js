@@ -2,8 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdministrator, requireAuthentication, requireManagement } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
+import { isAvailablePerson } from '../../../shared/access-control.mjs';
+import { attendanceRanking } from '../services/attendance-ranking.service.js';
+import { meetingList, teamAttendance } from '../services/workspace-views.service.js';
 import { addAuditEntry, publicPerson, publicUser, visibleNotifications } from '../services/records.service.js';
-import { auditView, dashboardSummary, portalView } from '../services/workspace-views.service.js';
+import { auditView, dashboardSummary, invoiceList, portalView } from '../services/workspace-views.service.js';
 
 const profileSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
@@ -18,15 +21,14 @@ const organizationSchema = z.object({
 }).refine((value) => Object.keys(value).length > 0, 'Provide at least one organization field');
 
 const reportBuilders = {
-  Attendance: (data) => [
-    ['Present', data.attendance.filter((record) => ['Present', 'On time', 'Late'].includes(record.status)).length],
-    ['Late', data.attendance.filter((record) => record.status === 'Late').length],
-    ['Absent', data.attendance.filter((record) => record.status === 'Absent').length]
-  ],
-  Payroll: (data) => ['Approved', 'Pending', 'Rejected'].map((status) => [status, data.invoices.filter((invoice) => invoice.status === status).reduce((sum, invoice) => sum + invoice.amount, 0)]),
-  Performance: () => [['Engineering', 89], ['Design', 96], ['Finance', 89], ['Sales', 78], ['Operations', 87]],
+  Attendance: (data, actor) => ['Present', 'Late', 'Absent', 'On leave'].map((status) => [status, teamAttendance(data, actor).records.filter((record) => status === 'Present' ? Boolean(record.clockIn) && record.status !== 'Late' : record.status === status).length]),
+  Payroll: (data, actor) => {
+    const invoices = invoiceList(data, actor).filter((item) => item.status !== 'Draft');
+    return [...new Set(invoices.map((item) => item.currency ?? 'USD'))].flatMap((currency) => ['Approved', 'Pending', 'Rejected'].map((status) => [`${currency} · ${status}`, Math.round(invoices.filter((item) => item.status === status && (item.currency ?? 'USD') === currency).reduce((sum, invoice) => sum + invoice.amount, 0) * 100) / 100]));
+  },
+  'Attendance ranking': (data) => attendanceRanking(data).departments.map((item) => [item.name, item.attendanceRate]),
   Equipment: (data) => ['In use', 'Available', 'In repair'].map((status) => [status, data.assets.filter((asset) => asset.status === status).length]),
-  Meetings: (data) => ['Confirmed', 'Pending'].map((status) => [status, data.meetings.filter((meeting) => meeting.status === status).length])
+  Meetings: (data, actor) => ['Confirmed', 'Pending'].map((status) => [status, meetingList(data, actor).filter((meeting) => meeting.status === status).length])
 };
 
 export function createWorkspaceRouter() {
@@ -52,7 +54,7 @@ export function createWorkspaceRouter() {
   router.get('/directory', (request, response) => {
     const query = String(request.query.q ?? '').trim().toLowerCase();
     const people = request.app.locals.store.data.users
-      .filter((user) => user.active !== false)
+      .filter(isAvailablePerson)
       .map(publicPerson)
       .filter((person) => !query || `${person.name} ${person.department} ${person.title}`.toLowerCase().includes(query));
     response.json({ people });
@@ -60,9 +62,9 @@ export function createWorkspaceRouter() {
 
   router.get('/reports', requireManagement, (request, response) => {
     const type = request.query.type || 'Attendance';
-    const builder = reportBuilders[type];
+    const builder = typeof type === 'string' && Object.hasOwn(reportBuilders, type) ? reportBuilders[type] : null;
     if (!builder) return response.status(400).json({ error: 'Unknown report type' });
-    response.json({ type, points: builder(request.app.locals.store.data).map(([label, value]) => ({ label, value })) });
+    response.json({ type, points: builder(request.app.locals.store.data, request.auth.user).map(([label, value]) => ({ label, value })) });
   });
 
   router.get('/notifications', (request, response) => {

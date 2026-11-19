@@ -26,7 +26,7 @@ export function DataTable({ headings, rows }) {
   return <div className="overflow-x-auto"><table className="data-table"><thead><tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{row.cells.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>;
 }
 
-export function Modal({ title, children, confirmLabel = 'Save', closeLabel = 'Cancel', onClose, onConfirm, busy = false, wide = false }) {
+export function Modal({ title, children, confirmLabel = 'Save', closeLabel = 'Cancel', onClose, onConfirm, busy = false, wide = false, confirmVariant = 'primary' }) {
   const dialog = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
@@ -53,7 +53,7 @@ export function Modal({ title, children, confirmLabel = 'Save', closeLabel = 'Ca
       <h4 className="m-0 mb-1 text-[17px]">{title}</h4>
       <form onSubmit={(event) => { event.preventDefault(); if (!busy) onConfirm?.(); }}>
         <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">{children}</fieldset>
-        <div className="mt-5 flex justify-end gap-2"><Button type="button" onClick={onClose} disabled={busy}>{closeLabel}</Button>{onConfirm && <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Saving…' : confirmLabel}</Button>}</div>
+        <div className="mt-5 flex justify-end gap-2"><Button type="button" onClick={onClose} disabled={busy}>{closeLabel}</Button>{onConfirm && <Button type="submit" variant={confirmVariant} disabled={busy}>{busy ? 'Saving…' : confirmLabel}</Button>}</div>
       </form>
     </div>
   </div>;

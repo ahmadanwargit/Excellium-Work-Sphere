@@ -22,7 +22,7 @@ function csvField(value) {
 }
 
 function reportCsv(rows) {
-  const headings = ['Employee', 'Department', 'Date', 'Clock in', 'Clock out', 'Total shift', 'Active time', 'Idle time', 'Total break', '5-minute breaks', '15-minute breaks', 'Over-break', 'Productivity score', 'Suspicious flags'];
+  const headings = ['Employee', 'Department', 'Date', 'Clock in', 'Clock out', 'Total shift', 'Active time', 'Idle time', 'Total break', '5-minute breaks', '15-minute breaks', 'Over-break', 'Active share (active / active + idle)', 'Suspicious flags'];
   const lines = rows.map((row) => [
     row.employee.name, row.employee.department, row.date, row.clockIn, row.clockOut, row.labels.totalShift,
     row.labels.active, row.labels.idle, row.labels.totalBreak, row.labels.break5, row.labels.break15,

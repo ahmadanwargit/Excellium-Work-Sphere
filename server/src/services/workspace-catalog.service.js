@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 export const SYSTEM_ROLES = Object.freeze([
   { id: 'employee', name: 'Employee', baseRole: 'employee', description: 'Personal attendance, invoices, leave, equipment and invited meetings.', system: true },
-  { id: 'trainer', name: 'Trainer', baseRole: 'trainer', description: 'Employee self-service plus training session requests.', system: true },
+  { id: 'trainer', name: 'Trainer', baseRole: 'trainer', description: 'Employee self-service, attendance ranking and meetings with management.', system: true },
   { id: 'manager', name: 'Management', baseRole: 'manager', description: 'Staff leave, invoice and equipment approvals, employee profiles, team attendance and reports.', system: true },
   { id: 'admin', name: 'Finance / Admin', baseRole: 'admin', description: 'Full management workspace plus privileged role assignment, role creation, organization settings and audit trail.', system: true }
 ]);
@@ -19,6 +19,7 @@ export function ensureWorkspaceFeatures(data) {
     id: departmentId(name), name, createdAt: '2026-01-02T09:00:00.000Z'
   }));
   data.leaveRequests ??= [];
+  for (const entry of [...data.roles, ...data.departments]) { entry.deletedAt ??= null; entry.deletedBy ??= null; }
   for (const role of data.roles) {
     const builtIn = SYSTEM_ROLES.find((item) => item.id === role.id);
     if (builtIn && role.system) role.description = builtIn.description;
@@ -30,6 +31,12 @@ export function ensureWorkspaceFeatures(data) {
     user.phone ??= '';
     user.startDate ??= null;
     user.active ??= true;
+    user.deletedAt ??= null;
+    user.deletedBy ??= null;
+    if (user.deletedAt) user.active = false;
+  }
+  for (const meeting of data.meetings ?? []) {
+    meeting.meetingType ??= 'General'; meeting.durationMinutes ??= 30; meeting.notes ??= '';
   }
   return data;
 }

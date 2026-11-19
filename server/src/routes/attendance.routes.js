@@ -15,6 +15,7 @@ import { createId, currentDateKey, currentIso } from '../utils/ids.js';
 import { conflict, HttpError } from '../utils/http-error.js';
 import { dateOnlySchema } from '../utils/validation.js';
 import { personalAttendance, teamAttendance } from '../services/workspace-views.service.js';
+import { attendanceRanking } from '../services/attendance-ranking.service.js';
 
 const breakStartSchema = z.object({
   minutes: z.number().int().refine((value) => [5, 15].includes(value), 'Break must be 5 or 15 minutes')
@@ -84,6 +85,10 @@ export function createAttendanceRouter() {
 
   router.get('/', requirePermission('selfService'), (request, response) => {
     response.json(personalAttendance(request.app.locals.store.data, request.auth.user));
+  });
+
+  router.get('/rankings', requirePermission('attendanceRanking'), (request, response) => {
+    response.set('Cache-Control', 'private, no-store').json(attendanceRanking(request.app.locals.store.data, request.query.month));
   });
 
   router.get('/team', requireManagement, (request, response) => {

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdministrator, requireAuthentication, requirePermission } from '../middleware/auth.middleware.js';
-import { assignableRoles, canManagePerson } from '../../../shared/access-control.mjs';
+import { assignableRoles } from '../../../shared/access-control.mjs';
 import { administrationView } from '../services/workspace-views.service.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { hashPassword } from '../services/auth.service.js';
@@ -10,6 +10,7 @@ import { accessGroupForRole } from '../services/access-group.service.js';
 import { createId, currentIso } from '../utils/ids.js';
 import { conflict, forbidden, notFound } from '../utils/http-error.js';
 import { dateOnlySchema } from '../utils/validation.js';
+import { assignDepartment, deletionPreview, managedProfile, removeDepartment, removeProfile, removeRoles } from '../services/profile-lifecycle.service.js';
 
 const profileFields = {
   name: z.string().trim().min(1).max(100),
@@ -29,18 +30,20 @@ const roleSchema = z.object({
   description: z.string().trim().max(300).default('')
 }).strict();
 const departmentSchema = z.object({ name: z.string().trim().min(2).max(100) }).strict();
+const selectedIds = z.array(z.string().trim().min(1).max(100)).min(1).max(100).refine((ids) => new Set(ids).size === ids.length, 'Do not select an item twice');
+const deleteProfileSchema = z.object({ confirm: z.literal(true), confirmationEmail: z.string().trim().email().max(254), acknowledgeHistoryRetention: z.literal(true) }).strict();
 
 function assignment(data, input, actor) {
-  const role = data.roles.find((item) => item.id === input.roleId);
+  const role = data.roles.find((item) => item.id === input.roleId && !item.deletedAt);
   if (!role) throw notFound('Select an existing role');
   if (!assignableRoles(actor).includes(role.baseRole)) throw forbidden('Management can assign only employee or trainer roles. Administrator access is required for privileged roles.');
-  const department = data.departments.find((item) => item.id === input.departmentId);
+  const department = data.departments.find((item) => item.id === input.departmentId && !item.deletedAt);
   if (!department) throw notFound('Select an existing department');
   return { role: role.baseRole, roleId: role.id, roleName: role.name, accessGroup: accessGroupForRole(role.baseRole), departmentId: department.id, department: department.name };
 }
 
 function checkEmail(data, email, exceptId) {
-  if (data.users.some((user) => user.id !== exceptId && user.email.toLowerCase() === email)) throw conflict('A user with this email already exists');
+  if (data.users.some((user) => user.id !== exceptId && user.email.toLowerCase() === email)) throw conflict('This email belongs to an existing or removed profile. Historical account emails remain reserved.');
 }
 
 export function createUsersRouter() {
@@ -55,7 +58,7 @@ export function createUsersRouter() {
     try {
       let role;
       await request.app.locals.store.mutate((data) => {
-        if (data.roles.some((item) => item.name.toLowerCase() === request.validated.name.toLowerCase())) throw conflict('A role with this name already exists');
+        if (data.roles.some((item) => !item.deletedAt && item.name.toLowerCase() === request.validated.name.toLowerCase())) throw conflict('A role with this name already exists');
         role = { id: createId('role'), ...request.validated, system: false, createdAt: currentIso() };
         data.roles.push(role);
         addAuditEntry(data, request.auth.user.id, `Created role ${role.name} with ${role.baseRole} permissions`, { eventType: 'ROLE_CREATED' });
@@ -68,12 +71,48 @@ export function createUsersRouter() {
     try {
       let department;
       await request.app.locals.store.mutate((data) => {
-        if (data.departments.some((item) => item.name.toLowerCase() === request.validated.name.toLowerCase())) throw conflict('A department with this name already exists');
+        if (data.departments.some((item) => !item.deletedAt && item.name.toLowerCase() === request.validated.name.toLowerCase())) throw conflict('A department with this name already exists');
         department = { id: createId('dept'), name: request.validated.name, createdAt: currentIso() };
         data.departments.push(department);
         addAuditEntry(data, request.auth.user.id, `Created department ${department.name}`, { eventType: 'DEPARTMENT_CREATED' });
       });
       response.status(201).json({ department });
+    } catch (error) { next(error); }
+  });
+
+  router.delete('/roles', requireAdministrator, validate(z.object({ roleIds: selectedIds, confirm: z.literal(true) }).strict()), async (request, response, next) => {
+    try {
+      let result;
+      await request.app.locals.store.mutate((data) => { result = removeRoles(data, request.auth.user, request.validated.roleIds); });
+      response.json(result);
+    } catch (error) { next(error); }
+  });
+
+  router.post('/departments/:departmentId/employees', requirePermission('manageDepartments'), validate(z.object({ userIds: selectedIds }).strict()), async (request, response, next) => {
+    try {
+      let result;
+      await request.app.locals.store.mutate((data) => { result = assignDepartment(data, request.auth.user, request.params.departmentId, request.validated.userIds); });
+      response.json(result);
+    } catch (error) { next(error); }
+  });
+
+  router.delete('/departments/:departmentId', requirePermission('manageDepartments'), validate(z.object({ confirm: z.literal(true), replacementDepartmentId: z.string().trim().min(1).max(100).optional() }).strict()), async (request, response, next) => {
+    try {
+      let result;
+      await request.app.locals.store.mutate((data) => { result = removeDepartment(data, request.auth.user, request.params.departmentId, request.validated.replacementDepartmentId); });
+      response.json(result);
+    } catch (error) { next(error); }
+  });
+
+  router.get('/:userId/deletion', (request, response, next) => {
+    try { response.json(deletionPreview(request.app.locals.store.data, request.auth.user, request.params.userId)); }
+    catch (error) { next(error); }
+  });
+
+  router.delete('/:userId', validate(deleteProfileSchema), async (request, response, next) => {
+    try {
+      await request.app.locals.store.mutate((data) => { removeProfile(data, request.auth.user, request.params.userId, request.validated); });
+      response.status(204).end();
     } catch (error) { next(error); }
   });
 
@@ -99,13 +138,11 @@ export function createUsersRouter() {
       const credentials = password ? hashPassword(password) : {};
       let user;
       await request.app.locals.store.mutate((data) => {
-        user = data.users.find((candidate) => candidate.id === request.params.userId);
-        if (!user) throw notFound('User not found');
-        if (!canManagePerson(request.auth.user, user)) throw forbidden('You cannot manage a profile outside your staff scope');
+        user = managedProfile(data, request.auth.user, request.params.userId);
         const selected = assignment(data, { roleId, departmentId }, request.auth.user);
         checkEmail(data, profile.email, user.id);
         if (user.id === request.auth.user.id && (!profile.active || selected.role !== 'admin')) throw forbidden('You cannot deactivate or remove administrator access from your own account');
-        if (user.role === 'admin' && (!profile.active || selected.role !== 'admin') && !data.users.some((other) => other.id !== user.id && other.role === 'admin' && other.active !== false)) {
+        if (user.role === 'admin' && (!profile.active || selected.role !== 'admin') && !data.users.some((other) => other.id !== user.id && other.role === 'admin' && other.active !== false && !other.deletedAt)) {
           throw conflict('At least one active administrator must remain');
         }
         Object.assign(user, profile, selected, credentials, { updatedAt: currentIso() });

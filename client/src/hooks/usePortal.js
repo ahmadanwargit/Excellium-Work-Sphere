@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiRequest, authApi, downloadApiFile } from '../api/client';
 
 const requestBody = (payload) => payload instanceof FormData ? payload : JSON.stringify(payload);
-const emptyData = () => ({ dashboard: null, attendance: null, teamAttendance: null, invoices: [], leaves: [], meetings: [], equipment: { assets: [], requests: [] }, notifications: [], directory: [], administration: { users: [], roles: [], departments: [] }, organization: null, auditLog: [] });
+const emptyData = () => ({ dashboard: null, attendance: null, teamAttendance: null, rankings: null, invoices: [], leaves: [], meetings: [], equipment: { assets: [], requests: [] }, notifications: [], directory: [], administration: { users: [], roles: [], departments: [] }, organization: null, auditLog: [] });
 
 export function usePortal() {
   const [state, setState] = useState({ user: null, data: emptyData(), loading: true });
@@ -81,6 +81,8 @@ export function usePortal() {
     return result;
   }, [refresh]);
 
+  const previewUserDeletion = useCallback((id) => apiRequest(`/api/admin/users/${encodeURIComponent(id)}/deletion`), []);
+
   return useMemo(() => ({
     ...state, refreshing, syncError, lastUpdated, login, logout, refresh,
     clockIn: () => execute('/api/attendance/clock-in', { method: 'POST', body: '{}' }),
@@ -104,6 +106,11 @@ export function usePortal() {
     cancelLeave: (id) => execute(`/api/leaves/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
     createUser: (payload) => execute('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
     updateUser: (id, payload) => execute(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    previewUserDeletion,
+    deleteUser: (id, payload) => execute(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify(payload) }),
+    deleteRoles: (roleIds) => execute('/api/admin/users/roles', { method: 'DELETE', body: JSON.stringify({ roleIds, confirm: true }) }),
+    deleteDepartment: (id, replacementDepartmentId) => execute(`/api/admin/users/departments/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ confirm: true, replacementDepartmentId }) }),
+    assignDepartment: (id, userIds) => execute(`/api/admin/users/departments/${encodeURIComponent(id)}/employees`, { method: 'POST', body: JSON.stringify({ userIds }) }),
     createRole: (payload) => execute('/api/admin/users/roles', { method: 'POST', body: JSON.stringify(payload) }),
     createDepartment: (payload) => execute('/api/admin/users/departments', { method: 'POST', body: JSON.stringify(payload) }),
     invoiceDocumentUrl: (id) => apiRequest(`/api/invoices/${encodeURIComponent(id)}/document`),
@@ -111,9 +118,11 @@ export function usePortal() {
     confirmMeeting: (id) => execute(`/api/meetings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'Confirmed' }) }),
     createEquipmentRequest: (payload) => execute('/api/equipment/requests', { method: 'POST', body: requestBody(payload) }),
     decideEquipmentRequest: (id, status) => execute(`/api/equipment/requests/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    createAsset: (payload) => execute('/api/equipment/assets', { method: 'POST', body: JSON.stringify(payload) }),
+    updateAsset: (id, payload) => execute(`/api/equipment/assets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
     equipmentAttachmentUrl: (id) => apiRequest(`/api/equipment/requests/${encodeURIComponent(id)}/attachment`),
     markNotificationsRead: () => execute('/api/notifications/read', { method: 'POST', body: '{}' }),
     updateProfile: (payload) => execute('/api/settings/profile', { method: 'PATCH', body: JSON.stringify(payload) }),
     updateOrganization: (payload) => execute('/api/settings/organization', { method: 'PATCH', body: JSON.stringify(payload) })
-  }), [state, refreshing, syncError, lastUpdated, execute, login, logout, refresh]);
+  }), [state, refreshing, syncError, lastUpdated, execute, login, logout, refresh, previewUserDeletion]);
 }

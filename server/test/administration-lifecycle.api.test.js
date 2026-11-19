@@ -1,0 +1,170 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createApi } from './helpers/api.js';
+import { JsonStore } from '../src/data/json-store.js';
+
+const profileInput = (person) => ({ name: person.name, email: person.email, title: person.title, roleId: person.roleId, departmentId: person.departmentId, active: person.active !== false });
+const deletion = (email) => ({ confirm: true, confirmationEmail: email, acknowledgeHistoryRetention: true });
+const get = async (request, path, cookie) => {
+  const response = await request(path, { cookie }); assert.equal(response.status, 200, await response.clone().text()); return response.json();
+};
+
+test('profile deletion requires explicit confirmations, blocks sessions and preserves referenced work history across restart', async (t) => {
+  const { request, login, store, storePath } = await createApi(t);
+  const manager = await login('daniel@excellium.com', 'management');
+  const admin = await login('sara@excellium.com', 'management');
+  const staff = await login();
+  assert.equal((await request('/api/admin/users/usr_john', { method: 'DELETE', cookie: staff, body: deletion('john@excellium.com') })).status, 403);
+  assert.equal((await request('/api/admin/users/usr_sara', { method: 'DELETE', cookie: manager, body: deletion('sara@excellium.com') })).status, 403);
+  assert.equal((await request('/api/admin/users/usr_sara/deletion', { cookie: admin })).status, 403);
+  assert.equal((await request('/api/admin/users/usr_sara', { method: 'DELETE', cookie: admin, body: deletion('sara@excellium.com') })).status, 403);
+  const preview = await get(request, '/api/admin/users/usr_john/deletion', manager);
+  assert.equal(preview.impact.invoices, 2); assert.equal(preview.impact.equipment, 1);
+  assert.equal(preview.user.passwordHash, undefined);
+  for (const body of [{}, { confirm: true }, { ...deletion('john@excellium.com'), acknowledgeHistoryRetention: false }]) assert.equal((await request('/api/admin/users/usr_john', { method: 'DELETE', cookie: manager, body })).status, 400);
+  assert.equal((await request('/api/admin/users/usr_john', { method: 'DELETE', cookie: manager, body: deletion('wrong@example.test') })).status, 409);
+  const invoiceIds = store.data.invoices.map((item) => item.id);
+  const attendanceCount = store.data.attendance.length;
+  assert.equal((await request('/api/admin/users/usr_john', { method: 'DELETE', cookie: manager, body: deletion('JOHN@EXCELLIUM.COM') })).status, 204);
+  assert.equal((await request('/api/portal', { cookie: staff })).status, 401);
+  assert.equal((await request('/api/auth/login', { method: 'POST', body: { email: 'john@excellium.com', password: 'password123', accessGroup: 'employee' } })).status, 401);
+  assert.equal((await request('/api/admin/users/usr_john', { method: 'PATCH', cookie: manager, body: { ...profileInput(preview.user), active: true } })).status, 404);
+  const portal = await get(request, '/api/portal', manager);
+  assert.ok(!portal.administration.users.some((person) => person.id === 'usr_john'));
+  assert.ok(!portal.directory.some((person) => person.id === 'usr_john'));
+  assert.ok(!portal.rankings.rows.some((row) => row.employee.id === 'usr_john'));
+  assert.ok(!portal.teamAttendance.records.some((row) => row.userId === 'usr_john'));
+  assert.ok(!portal.equipment.assignees.some((person) => person.id === 'usr_john'));
+  assert.ok(portal.equipment.assets.some((asset) => asset.assignedTo === 'usr_john' && asset.assignee.name === 'John Carter'));
+  assert.equal((await request('/api/invoices/INV-1042/pdf', { cookie: manager })).status, 200);
+  const restarted = await new JsonStore(storePath).initialise();
+  assert.ok(restarted.data.users.find((person) => person.id === 'usr_john').deletedAt);
+  assert.deepEqual(restarted.data.invoices.map((item) => item.id), invoiceIds);
+  assert.equal(restarted.data.attendance.length, attendanceCount);
+  assert.ok(restarted.data.auditLog.some((entry) => entry.eventType === 'USER_DELETED'));
+});
+
+test('custom role batch deletion protects built-ins, validates the entire selection and preserves each assigned permission level', async (t) => {
+  const { request, login, store, storePath } = await createApi(t);
+  const admin = await login('sara@excellium.com', 'management');
+  const manager = await login('daniel@excellium.com', 'management');
+  const trainer = await login('priya@excellium.com');
+  const roleIds = [];
+  for (const baseRole of ['employee', 'trainer']) {
+    const created = await request('/api/admin/users/roles', { method: 'POST', cookie: admin, body: { name: `Temporary ${baseRole}`, baseRole } });
+    assert.equal(created.status, 201); roleIds.push((await created.json()).role.id);
+  }
+  await store.mutate((data) => { data.users.find((person) => person.id === 'usr_john').roleId = roleIds[0]; data.users.find((person) => person.id === 'usr_priya').roleId = roleIds[1]; });
+  const body = { roleIds, confirm: true };
+  assert.equal((await request('/api/admin/users/roles', { method: 'DELETE', cookie: manager, body })).status, 403);
+  for (const selected of [[roleIds[0], 'employee'], [roleIds[0], 'missing'], [roleIds[0], roleIds[0]], []]) assert.ok([400, 403, 404].includes((await request('/api/admin/users/roles', { method: 'DELETE', cookie: admin, body: { roleIds: selected, confirm: true } })).status));
+  assert.ok(store.data.roles.filter((role) => roleIds.includes(role.id)).every((role) => !role.deletedAt));
+  const removed = await request('/api/admin/users/roles', { method: 'DELETE', cookie: admin, body });
+  assert.equal(removed.status, 200); assert.deepEqual(await removed.json(), { removed: 2, reassigned: 2 });
+  const portal = await get(request, '/api/portal', trainer);
+  assert.equal(portal.user.roleId, 'trainer'); assert.ok(portal.user.permissions.includes('scheduleMeetings')); assert.ok(!portal.user.permissions.includes('manageStaff'));
+  const catalog = await get(request, '/api/admin/users', admin);
+  assert.ok(!catalog.roles.some((role) => roleIds.includes(role.id)));
+  const john = catalog.users.find((person) => person.id === 'usr_john');
+  assert.equal(john.roleId, 'employee');
+  assert.equal((await request('/api/admin/users/usr_john', { method: 'PATCH', cookie: admin, body: { ...profileInput(john), roleId: roleIds[0] } })).status, 404);
+  assert.equal((await request('/api/admin/users/roles', { method: 'POST', cookie: admin, body: { name: 'Temporary trainer', baseRole: 'trainer' } })).status, 201, 'removed names can be reused under a new ID');
+  const restarted = await new JsonStore(storePath).initialise();
+  assert.ok(restarted.data.roles.find((role) => role.id === roleIds[0]).deletedAt);
+  assert.equal(restarted.data.users.find((person) => person.id === 'usr_john').roleId, 'employee');
+});
+
+test('department selection moves employees atomically and deletion requires a safe replacement with management boundaries', async (t) => {
+  const { request, login, store } = await createApi(t);
+  const manager = await login('daniel@excellium.com', 'management');
+  const employee = await login();
+  const catalog = await get(request, '/api/admin/users', manager);
+  const john = catalog.users.find((person) => person.id === 'usr_john');
+  const created = await request('/api/admin/users/departments', { method: 'POST', cookie: manager, body: { name: 'Temporary People Team' } });
+  const department = (await created.json()).department;
+  const path = `/api/admin/users/departments/${department.id}`;
+  assert.equal((await request(`${path}/employees`, { method: 'POST', cookie: employee, body: { userIds: ['usr_john'] } })).status, 403);
+  assert.equal((await request(`${path}/employees`, { method: 'POST', cookie: manager, body: { userIds: ['usr_john', 'usr_sara'] } })).status, 403);
+  assert.equal(store.data.users.find((person) => person.id === 'usr_john').departmentId, john.departmentId, 'bad batch must not move its first profile');
+  assert.equal((await request(`${path}/employees`, { method: 'POST', cookie: manager, body: { userIds: ['usr_john', 'missing'] } })).status, 404);
+  assert.equal((await request(`${path}/employees`, { method: 'POST', cookie: manager, body: { userIds: ['usr_john', 'usr_priya'] } })).status, 200);
+  assert.equal((await get(request, '/api/me', employee)).user.departmentId, department.id);
+  assert.equal((await request(path, { method: 'DELETE', cookie: manager, body: { confirm: true } })).status, 409);
+  assert.equal((await request(path, { method: 'DELETE', cookie: manager, body: { confirm: true, replacementDepartmentId: department.id } })).status, 409);
+  assert.equal((await request(path, { method: 'DELETE', cookie: manager, body: { confirm: true, replacementDepartmentId: john.departmentId } })).status, 200);
+  assert.equal((await get(request, '/api/me', employee)).user.departmentId, john.departmentId);
+  assert.ok(!(await get(request, '/api/admin/users', manager)).departments.some((item) => item.id === department.id));
+  const finance = catalog.departments.find((item) => item.name === 'Finance');
+  assert.equal(finance.canDelete, false);
+  assert.equal((await request(`/api/admin/users/departments/${finance.id}`, { method: 'DELETE', cookie: manager, body: { confirm: true, replacementDepartmentId: john.departmentId } })).status, 403);
+});
+
+test('equipment assignment CRUD is management-only, validates inventory and appears identically in the current owner portal', async (t) => {
+  const { request, login, storePath } = await createApi(t);
+  const manager = await login('daniel@excellium.com', 'management');
+  const john = await login(); const trainer = await login('priya@excellium.com');
+  const asset = { name: 'Real test laptop', type: 'Laptop', serialNumber: 'LIFECYCLE-SN-001', assignedTo: 'usr_john', issuedOn: '2026-11-01', status: 'In use' };
+  for (const cookie of [john, trainer]) assert.equal((await request('/api/equipment/assets', { method: 'POST', cookie, body: asset })).status, 403);
+  for (const invalid of [{ ...asset, issuedOn: '2026-02-30' }, { ...asset, issuedOn: '2099-01-01' }, { ...asset, assignedTo: null }, { ...asset, status: 'Available' }]) assert.equal((await request('/api/equipment/assets', { method: 'POST', cookie: manager, body: invalid })).status, 400);
+  assert.equal((await request('/api/equipment/assets', { method: 'POST', cookie: manager, body: { ...asset, assignedTo: 'usr_sara' } })).status, 403);
+  const created = await request('/api/equipment/assets', { method: 'POST', cookie: manager, body: asset });
+  assert.equal(created.status, 201); const id = (await created.json()).asset.id;
+  assert.equal((await request('/api/equipment/assets', { method: 'POST', cookie: manager, body: { ...asset, serialNumber: asset.serialNumber.toLowerCase() } })).status, 409);
+  const own = (await get(request, '/api/equipment', john)).assets.find((item) => item.id === id);
+  const team = (await get(request, '/api/equipment', manager)).assets.find((item) => item.id === id);
+  const { canEdit: _, ...teamInfo } = team; const { canEdit: __, ...ownInfo } = own;
+  assert.deepEqual(ownInfo, teamInfo);
+  assert.equal((await request(`/api/equipment/assets/${id}`, { method: 'PATCH', cookie: manager, body: { ...asset, assignedTo: 'usr_priya', status: 'In repair' } })).status, 200);
+  assert.ok(!(await get(request, '/api/equipment', john)).assets.some((item) => item.id === id));
+  assert.equal((await get(request, '/api/equipment', trainer)).assets.find((item) => item.id === id).status, 'In repair');
+  const restarted = await new JsonStore(storePath).initialise();
+  assert.equal(restarted.data.assets.find((item) => item.id === id).assignedTo, 'usr_priya');
+  assert.ok(restarted.data.auditLog.some((entry) => entry.eventType === 'EQUIPMENT_ASSIGNMENT' && entry.subjectUserId === 'usr_priya'));
+  assert.equal((await request(`/api/equipment/assets/${id}`, { method: 'PATCH', cookie: manager, body: { ...asset, assignedTo: null, issuedOn: null, status: 'Available' } })).status, 200);
+  assert.ok(!(await get(request, '/api/equipment', trainer)).assets.some((item) => item.id === id));
+});
+
+test('trainer management meetings require active management invitees and protect private agenda/confirmation', async (t) => {
+  const { request, login, store } = await createApi(t);
+  const trainer = await login('priya@excellium.com');
+  const manager = await login('daniel@excellium.com', 'management');
+  const employee = await login();
+  await store.mutate((data) => { const source = data.users.find((person) => person.id === 'usr_daniel'); data.users.push({ ...source, id: 'usr_OtherManager', email: 'other.manager@example.test', name: 'Other Manager' }); });
+  const other = await login('other.manager@example.test', 'management');
+  const body = { title: 'Meeting with management', startsAt: '2026-12-22T10:00:00Z', durationMinutes: 45, notes: 'Private management agenda', participants: ['usr_daniel'] };
+  for (const invalid of [{ ...body, participants: [] }, { ...body, participants: ['usr_john'] }, { ...body, startsAt: '2025-01-01T09:00:00Z' }, { ...body, durationMinutes: 5 }]) assert.equal((await request('/api/meetings', { method: 'POST', cookie: trainer, body: invalid })).status, 400);
+  assert.equal((await request('/api/meetings', { method: 'POST', cookie: trainer, body: { ...body, meetingType: 'General' } })).status, 403);
+  const created = await request('/api/meetings', { method: 'POST', cookie: trainer, body });
+  assert.equal(created.status, 201); const meeting = (await created.json()).meeting;
+  assert.equal(meeting.status, 'Pending'); assert.equal(meeting.meetingType, 'Management');
+  assert.deepEqual(meeting.participants.sort(), ['usr_daniel', 'usr_priya']);
+  for (const cookie of [other, employee]) assert.ok(!(await get(request, '/api/meetings', cookie)).meetings.some((item) => item.id === meeting.id));
+  assert.equal((await request(`/api/meetings/${meeting.id}`, { method: 'PATCH', cookie: other, body: { status: 'Confirmed' } })).status, 403);
+  assert.equal((await request(`/api/meetings/${meeting.id}`, { method: 'PATCH', cookie: manager, body: { status: 'Confirmed' } })).status, 200);
+  assert.equal((await get(request, '/api/meetings', trainer)).meetings.find((item) => item.id === meeting.id).notes, body.notes);
+  assert.ok((await get(request, '/api/notifications', trainer)).notifications.some((item) => item.message.includes('Meeting confirmed')));
+});
+
+test('ranking and report endpoints use recorded attendance and preserve separate currencies with no fake performance series', async (t) => {
+  const { request, login, store } = await createApi(t);
+  const manager = await login('daniel@excellium.com', 'management');
+  const employee = await login();
+  const ranking = await get(request, '/api/attendance/rankings?month=2026-11', employee);
+  const john = ranking.rows.find((row) => row.employee.id === 'usr_john');
+  assert.equal(john.presentDays, 4); assert.equal(john.lateDays, 1);
+  assert.equal(john.employee.email, undefined); assert.equal(john.clockIn, undefined); assert.equal(john.leaveReason, undefined);
+  assert.ok(ranking.rows.every((row) => !['usr_sara', 'usr_daniel'].includes(row.employee.id)));
+  assert.equal((await request('/api/attendance/rankings?month=2026-13', { cookie: employee })).status, 400);
+  assert.equal((await request('/api/attendance/rankings?month=2099-01', { cookie: employee })).status, 400);
+  assert.equal((await request('/api/reports?type=Performance', { cookie: manager })).status, 400);
+  assert.equal((await request('/api/reports?type=toString', { cookie: manager })).status, 400);
+  await store.mutate((data) => { data.invoices.push({ ...data.invoices[0], id: 'INV-PKR', currency: 'PKR', amount: 12345 }); });
+  const payroll = await get(request, '/api/reports?type=Payroll', manager);
+  assert.equal(payroll.points.find((item) => item.label === 'PKR · Approved').value, 12345);
+  assert.equal(payroll.points.find((item) => item.label === 'USD · Approved').value, 8400);
+  const actual = await get(request, '/api/reports?type=Attendance%20ranking', manager);
+  assert.deepEqual(actual.points, ranking.departments.map((item) => ({ label: item.name, value: item.attendanceRate })));
+  const attendance = await get(request, '/api/reports?type=Attendance', manager);
+  const team = await get(request, '/api/attendance/team', manager);
+  assert.equal(attendance.points.reduce((sum, item) => sum + item.value, 0), team.records.length, 'today categories must be disjoint');
+});

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Button, DataTable, EmptyState, Modal, PageHeading, Panel } from '../common/UI';
 import { StatusBadge } from '../common/StatusBadge';
+import { BarChart } from '../common/BarChart';
+import { approvedInvoiceSeries } from '../../utils/charts';
 import { can } from '../../utils/portal';
 import { exportInvoices, formatMoney, formErrorMessage, invoiceTotals } from '../../utils/workflows';
 
@@ -8,14 +10,8 @@ const newLine = () => ({ key: window.crypto.randomUUID(), description: '', quant
 const freshInvoice = () => ({ id: null, month: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }), currency: 'USD', taxRate: 0, paymentDetails: '', notes: '', dueDate: '', lineItems: [newLine()], document: null });
 
 function PaymentChart({ invoices }) {
-  const groups = new Map();
-  invoices.filter((invoice) => invoice.status === 'Approved').forEach((invoice) => {
-    const key = `${invoice.month} · ${invoice.currency ?? 'USD'}`;
-    groups.set(key, { label: key, currency: invoice.currency, total: (groups.get(key)?.total ?? 0) + invoice.amount });
-  });
-  const months = [...groups.values()].slice(0, 6).reverse();
-  const max = Math.max(1, ...months.map((item) => item.total));
-  return months.length ? <div className="flex h-[200px] items-end gap-2.5 pt-2.5">{months.map(({ label, total, currency }) => <div className="chart-column min-w-0" key={label}><small className="break-words">{formatMoney(total, currency)}</small><i className="chart-column-bar" style={{ height: `${total / max * 70}%` }} /><span className="break-words">{label}</span></div>)}</div> : <EmptyState>No approved invoice history yet. Approval is not a confirmation of payment.</EmptyState>;
+  const series = approvedInvoiceSeries(invoices);
+  return series.length ? <div className="space-y-6">{series.map(({ currency, points, totalPeriods }) => <div key={currency}><BarChart label={`Approved invoice totals · ${currency} · latest ${points.length} of ${totalPeriods} recorded periods · chronological order`} unit={` ${currency}`} points={points.map((point) => ({ label: point.label, value: point.total, formatted: formatMoney(point.total, currency), detail: `${point.count} approved invoice${point.count === 1 ? '' : 's'}` }))} /></div>)}<p className="mb-0 text-xs text-muted">Each currency has its own zero-based scale. No currency conversion is applied. Approval does not confirm payment; missing months are not invented.</p></div> : <EmptyState>No approved invoice history yet. Approval is not a confirmation of payment.</EmptyState>;
 }
 
 export function InvoicesPage({ user, invoices, actions, onError }) {
