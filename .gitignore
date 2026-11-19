@@ -14,6 +14,11 @@ server/data/store.json.tmp
 # Vercel local project metadata and build output
 .vercel/
 
+# Browser test artifacts and local tool caches
+test-results/
+playwright-report/
+.cache/
+
 # Local configuration
 .env
 .env.*

@@ -1,8 +1,8 @@
 export const roleMeta = {
-  employee: { label: 'Employee', name: 'John Carter', title: 'Software Engineer', description: 'Attendance, pay and tasks', email: 'john@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'rankings', 'meetings', 'equipment', 'directory'] },
-  trainer: { label: 'Trainer', name: 'Priya Nair', title: 'Lead Trainer', description: 'Cohorts and sessions', email: 'priya@excellium.com', pages: ['dashboard', 'attendance', 'rankings', 'meetings', 'equipment', 'directory'] },
-  manager: { label: 'Management', name: 'Daniel Okafor', title: 'Operations Manager', description: 'Team and approvals', email: 'daniel@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'rankings', 'meetings', 'equipment', 'directory', 'reports'] },
-  admin: { label: 'Finance / Admin', name: 'Sara Malik', title: 'Finance and Admin', description: 'Payroll, assets, system', email: 'sara@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'rankings', 'meetings', 'equipment', 'directory', 'reports'] }
+  employee: { label: 'Employee', name: 'John Carter', title: 'Software Engineer', description: 'Attendance, pay and tasks', email: 'john@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory'] },
+  trainer: { label: 'Trainer', name: 'Priya Nair', title: 'Lead Trainer', description: 'Cohorts and sessions', email: 'priya@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory'] },
+  manager: { label: 'Management', name: 'Daniel Okafor', title: 'Operations Manager', description: 'Team and approvals', email: 'daniel@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory', 'reports'] },
+  admin: { label: 'Finance / Admin', name: 'Sara Malik', title: 'Finance and Admin', description: 'Payroll, assets, system', email: 'sara@excellium.com', pages: ['dashboard', 'attendance', 'invoices', 'leaves', 'rankings', 'meetings', 'equipment', 'directory', 'reports', 'users'] }
 };
 
 // Sign-in deliberately exposes only these broad access categories. The API
@@ -16,6 +16,8 @@ export const pageTitles = {
   dashboard: 'Dashboard',
   attendance: 'Attendance',
   invoices: 'Salary invoices',
+  leaves: 'Leave applications',
+  users: 'User administration',
   rankings: 'Performance and rankings',
   meetings: 'Meetings',
   equipment: 'Equipment and assets',

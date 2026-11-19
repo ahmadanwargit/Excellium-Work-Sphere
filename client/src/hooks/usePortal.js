@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { apiRequest, authApi } from '../api/client';
+import { apiRequest, authApi, downloadApiFile } from '../api/client';
 
 const requestBody = (payload) => payload instanceof FormData ? payload : JSON.stringify(payload);
+const emptyData = () => ({ dashboard: null, attendance: null, invoices: [], leaves: [], meetings: [], equipment: { assets: [], requests: [] }, notifications: [], directory: [], administration: { users: [], roles: [], departments: [] } });
 
 export function usePortal() {
   const [user, setUser] = useState(null);
-  const [data, setData] = useState({ dashboard: null, attendance: null, invoices: [], meetings: [], equipment: { assets: [], requests: [] }, notifications: [], directory: [] });
+  const [data, setData] = useState(emptyData);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [dashboard, attendance, invoices, meetings, equipment, notifications, directory] = await Promise.all([
-      apiRequest('/api/dashboard'), apiRequest('/api/attendance'), apiRequest('/api/invoices'), apiRequest('/api/meetings'), apiRequest('/api/equipment'), apiRequest('/api/notifications'), apiRequest('/api/directory')
+    const [dashboard, attendance, invoices, meetings, equipment, notifications, directory, leaves] = await Promise.all([
+      apiRequest('/api/dashboard'), apiRequest('/api/attendance'), apiRequest('/api/invoices'), apiRequest('/api/meetings'), apiRequest('/api/equipment'), apiRequest('/api/notifications'), apiRequest('/api/directory'), apiRequest('/api/leaves')
     ]);
+    const administration = dashboard.user.role === 'admin' ? await apiRequest('/api/admin/users') : { users: [], roles: [], departments: [] };
     setUser(dashboard.user);
-    setData({ dashboard, attendance, invoices: invoices.invoices, meetings: meetings.meetings, equipment, notifications: notifications.notifications, directory: directory.people });
+    setData({ dashboard, attendance, invoices: invoices.invoices, meetings: meetings.meetings, equipment, notifications: notifications.notifications, directory: directory.people, leaves: leaves.leaves, administration });
     return dashboard.user;
   }, []);
 
@@ -33,7 +35,7 @@ export function usePortal() {
   const logout = useCallback(async () => {
     try { await authApi.logout(); } finally {
       setUser(null);
-      setData({ dashboard: null, attendance: null, invoices: [], meetings: [], equipment: { assets: [], requests: [] }, notifications: [], directory: [] });
+      setData(emptyData());
     }
   }, []);
 
@@ -72,7 +74,17 @@ export function usePortal() {
     },
     createCorrection: (payload) => execute('/api/attendance/corrections', { method: 'POST', body: JSON.stringify(payload) }),
     createInvoice: (payload) => execute('/api/invoices', { method: 'POST', body: requestBody(payload) }),
+    updateInvoiceDraft: (id, payload) => execute(`/api/invoices/${encodeURIComponent(id)}/draft`, { method: 'PUT', body: requestBody(payload) }),
+    submitInvoice: (id) => execute(`/api/invoices/${encodeURIComponent(id)}/submit`, { method: 'POST', body: '{}' }),
+    downloadInvoice: (id) => downloadApiFile(`/api/invoices/${encodeURIComponent(id)}/pdf`, `${id}.pdf`),
     decideInvoice: (id, status) => execute(`/api/invoices/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    applyLeave: (payload) => execute('/api/leaves', { method: 'POST', body: JSON.stringify(payload) }),
+    decideLeave: (id, payload) => execute(`/api/leaves/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    cancelLeave: (id) => execute(`/api/leaves/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
+    createUser: (payload) => execute('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
+    updateUser: (id, payload) => execute(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    createRole: (payload) => execute('/api/admin/users/roles', { method: 'POST', body: JSON.stringify(payload) }),
+    createDepartment: (payload) => execute('/api/admin/users/departments', { method: 'POST', body: JSON.stringify(payload) }),
     invoiceDocumentUrl: (id) => apiRequest(`/api/invoices/${encodeURIComponent(id)}/document`),
     createMeeting: (payload) => execute('/api/meetings', { method: 'POST', body: JSON.stringify(payload) }),
     createEquipmentRequest: (payload) => execute('/api/equipment/requests', { method: 'POST', body: requestBody(payload) }),

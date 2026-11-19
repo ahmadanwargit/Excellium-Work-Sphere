@@ -1,5 +1,6 @@
 import { scryptSync } from 'node:crypto';
 import { accessGroupForRole } from '../services/access-group.service.js';
+import { ensureWorkspaceFeatures } from '../services/workspace-catalog.service.js';
 
 const DEMO_PASSWORD = 'password123';
 
@@ -42,7 +43,7 @@ export function createSeed() {
     seededUser({ id: 'usr_tom', email: 'tom@excellium.com', name: 'Tom Becker', role: 'employee', title: 'Operations Specialist', department: 'Operations' })
   ];
 
-  return {
+  return ensureWorkspaceFeatures({
     schemaVersion: 1,
     organization: {
       name: 'Excellium Global Services',
@@ -105,5 +106,5 @@ export function createSeed() {
       { id: 'aud_1002', timestamp: '2026-11-16T09:15:00.000Z', actorId: 'usr_daniel', action: 'Updated role: Trainer' },
       { id: 'aud_1003', timestamp: '2026-11-15T23:00:00.000Z', actorId: null, action: 'Backup completed' }
     ]
-  };
+  });
 }

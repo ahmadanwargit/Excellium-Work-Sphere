@@ -23,7 +23,7 @@ export function createAuthRouter() {
     try {
       const { email, password, accessGroup } = request.validated;
       const user = request.app.locals.store.data.users.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase());
-      if (!user || !verifyPassword(password, user)) throw new HttpError(401, 'Incorrect email or password');
+      if (!user || user.active === false || !verifyPassword(password, user)) throw new HttpError(401, 'Incorrect email or password');
       if (!hasAccessGroup(user, accessGroup)) throw new HttpError(403, 'This email does not belong to the selected sign-in group');
 
       const { token, expiresAt } = await request.app.locals.sessions.create(user.id);

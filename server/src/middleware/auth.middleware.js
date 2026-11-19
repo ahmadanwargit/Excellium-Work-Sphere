@@ -18,7 +18,7 @@ export async function requireAuthentication(request, _response, next) {
     const session = await request.app.locals.sessions.get(token);
     if (!session) throw unauthorized('Your session has expired. Please sign in again.');
     const user = findUser(request.app.locals.store.data, session.userId);
-    if (!user) throw unauthorized('Your account is no longer available');
+    if (!user || user.active === false) throw unauthorized('Your account is no longer available');
     request.auth = { token, user };
     next();
   } catch (error) {

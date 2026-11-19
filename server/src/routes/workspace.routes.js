@@ -20,11 +20,16 @@ const organizationSchema = z.object({
 function dashboardSummary(data, user) {
   if (isManager(user)) {
     const attendance = data.attendance.filter((record) => record.date === currentDateKey());
+    const onLeave = new Set(attendance.filter((record) => record.status === 'On leave').map((record) => record.userId));
+    for (const leave of data.leaveRequests) {
+      if (leave.status === 'Approved' && leave.startDate <= currentDateKey() && leave.endDate >= currentDateKey()) onLeave.add(leave.employeeId);
+    }
     return {
       totalEmployees: data.users.length,
       present: attendance.filter((record) => ['Present', 'On time', 'Late', 'Early departure'].includes(record.status)).length,
       absent: attendance.filter((record) => record.status === 'Absent').length,
-      onLeave: attendance.filter((record) => record.status === 'On leave').length,
+      onLeave: onLeave.size,
+      departmentCount: data.departments.length,
       pendingInvoices: data.invoices.filter((invoice) => invoice.status === 'Pending').length,
       pendingEquipmentRequests: data.equipmentRequests.filter((request) => request.status === 'Pending').length,
       upcomingMeetings: data.meetings.filter((meeting) => new Date(meeting.startsAt) >= new Date()).length
@@ -70,7 +75,8 @@ export function createWorkspaceRouter() {
   router.get('/directory', (request, response) => {
     const query = String(request.query.q ?? '').trim().toLowerCase();
     const people = request.app.locals.store.data.users
-      .map((user) => ({ id: user.id, name: user.name, email: user.email, title: user.title, department: user.department, role: user.role }))
+      .filter((user) => user.active !== false)
+      .map((user) => ({ id: user.id, name: user.name, email: user.email, title: user.title, department: user.department, role: user.role, roleName: user.roleName }))
       .filter((person) => !query || `${person.name} ${person.department} ${person.title}`.toLowerCase().includes(query));
     response.json({ people });
   });

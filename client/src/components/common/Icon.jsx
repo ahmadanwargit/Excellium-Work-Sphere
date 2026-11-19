@@ -9,6 +9,8 @@ const icons = {
   invoices: FileText,
   rankings: Trophy,
   meetings: CalendarDays,
+  leaves: CalendarDays,
+  users: UsersRound,
   equipment: MonitorCog,
   directory: UsersRound,
   reports: ChartNoAxesCombined,

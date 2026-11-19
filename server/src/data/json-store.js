@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { createSeed } from './seed.js';
 import { ensureWorkSessionCollections } from '../services/activity.service.js';
 import { ensureAccessGroups } from '../services/access-group.service.js';
+import { ensureWorkspaceFeatures } from '../services/workspace-catalog.service.js';
 
 /**
  * Small transactional JSON adapter for the demo. Its public contract keeps
@@ -23,6 +24,7 @@ export class JsonStore {
       this.data = createSeed();
       ensureWorkSessionCollections(this.data);
       ensureAccessGroups(this.data);
+      ensureWorkspaceFeatures(this.data);
       await this.save();
       return this;
     }
@@ -32,6 +34,7 @@ export class JsonStore {
       if (this.data?.schemaVersion !== 1) throw new Error('unsupported schema version');
       ensureWorkSessionCollections(this.data);
       ensureAccessGroups(this.data);
+      ensureWorkspaceFeatures(this.data);
     } catch (error) {
       throw new Error(`Unable to load local data store: ${error.message}`);
     }

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export function Button({ children, variant = 'default', small = false, className = '', ...props }) {
   const tone = variant === 'primary' ? 'app-button-primary' : variant === 'danger' ? 'app-button-danger' : '';
@@ -26,17 +26,35 @@ export function DataTable({ headings, rows }) {
   return <div className="overflow-x-auto"><table className="data-table"><thead><tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{row.cells.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>;
 }
 
-export function Modal({ title, children, confirmLabel = 'Save', onClose, onConfirm, busy = false }) {
+export function Modal({ title, children, confirmLabel = 'Save', closeLabel = 'Cancel', onClose, onConfirm, busy = false, wide = false }) {
+  const dialog = useRef(null);
   useEffect(() => {
-    const closeOnEscape = (event) => event.key === 'Escape' && onClose();
+    const previous = document.activeElement;
+    dialog.current?.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])')?.focus();
+    return () => previous?.focus();
+  }, []);
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape' && !busy) onClose();
+      if (event.key === 'Tab') {
+        const elements = dialog.current?.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
+        const first = elements?.[0];
+        const last = elements?.[elements.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
+  }, [onClose, busy]);
 
   return <div className="fixed inset-0 z-20 grid place-items-center bg-black/50 p-4" role="presentation">
-    <div className="max-h-[90vh] w-full max-w-[460px] overflow-auto rounded-2xl bg-surface p-[22px] shadow-[0_24px_60px_-12px_rgba(0,0,0,.5)]" role="dialog" aria-modal="true" aria-label={title}>
-      <h4 className="m-0 mb-1 text-[17px]">{title}</h4>{children}
-      <div className="mt-5 flex justify-end gap-2"><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="primary" onClick={onConfirm} disabled={busy}>{busy ? 'Saving…' : confirmLabel}</Button></div>
+    <div ref={dialog} className={`max-h-[90vh] w-full ${wide ? 'max-w-[760px]' : 'max-w-[460px]'} overflow-auto rounded-2xl bg-surface p-[22px] shadow-[0_24px_60px_-12px_rgba(0,0,0,.5)]`} role="dialog" aria-modal="true" aria-label={title}>
+      <h4 className="m-0 mb-1 text-[17px]">{title}</h4>
+      <form onSubmit={(event) => { event.preventDefault(); if (!busy) onConfirm?.(); }}>
+        <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">{children}</fieldset>
+        <div className="mt-5 flex justify-end gap-2"><Button type="button" onClick={onClose} disabled={busy}>{closeLabel}</Button>{onConfirm && <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Saving…' : confirmLabel}</Button>}</div>
+      </form>
     </div>
   </div>;
 }

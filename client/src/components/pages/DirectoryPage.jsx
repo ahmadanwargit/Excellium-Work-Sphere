@@ -9,7 +9,7 @@ export function DirectoryPage({ people }) {
   return <>
     <PageHeading title="Employee directory" description="Find colleagues by name or department." />
     <input className="field-control mb-4 max-w-[320px]" placeholder="Search people" value={query} onChange={(event) => setQuery(event.target.value)} />
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">{results.map((person) => <article className="panel flex items-center gap-3" key={person.id}><span className="grid h-[38px] w-[38px] place-items-center rounded-xl border border-line bg-accent-soft font-semibold text-accent">{initials(person.name)}</span><div>{person.name}<small className="block text-muted">{person.department}</small><StatusBadge status="Present">{person.role}</StatusBadge></div></article>)}</div>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">{results.map((person) => <article className="panel flex items-center gap-3" key={person.id}><span className="grid h-[38px] w-[38px] place-items-center rounded-xl border border-line bg-accent-soft font-semibold text-accent">{initials(person.name)}</span><div>{person.name}<small className="block text-muted">{person.department}</small><StatusBadge status="Present">{person.roleName ?? person.role}</StatusBadge></div></article>)}</div>
     {!results.length && <p className="text-muted">No one matches that search.</p>}
   </>;
 }

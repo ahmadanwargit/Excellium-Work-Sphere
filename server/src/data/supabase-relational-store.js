@@ -1,12 +1,17 @@
 import { createSeed } from './seed.js';
 import { accessGroupForRole } from '../services/access-group.service.js';
+import { ensureWorkspaceFeatures } from '../services/workspace-catalog.service.js';
 import { createSupabaseServerClient } from '../services/supabase-client.service.js';
 import { HttpError } from '../utils/http-error.js';
 
 const SETTINGS_ID = 'workspace';
 const TABLE = {
   settings: 'excellium_workspace_settings',
+  roles: 'excellium_roles',
+  departments: 'excellium_departments',
   users: 'excellium_users',
+  leaves: 'excellium_leave_requests',
+  invoiceItems: 'excellium_invoice_items',
   attendance: 'excellium_attendance',
   corrections: 'excellium_attendance_corrections',
   workSessions: 'excellium_work_sessions',
@@ -73,6 +78,7 @@ function changedRows(previousRows, nextRows) {
 
 /** Converts the in-memory domain model into explicit relational table rows. */
 export function serializeWorkspace(data) {
+  ensureWorkspaceFeatures(data);
   return {
     settings: {
       id: SETTINGS_ID,
@@ -82,9 +88,16 @@ export function serializeWorkspace(data) {
       standard_start_time: data.organization.standardStartTime,
       inactivity_lock_minutes: data.organization.inactivityLockMinutes
     },
+    roles: data.roles.map((role) => ({ id: role.id, name: role.name, base_role: role.baseRole, description: role.description ?? '', is_system: role.system, created_at: role.createdAt })),
+    departments: data.departments.map((department) => ({ id: department.id, name: department.name, created_at: department.createdAt })),
     users: data.users.map((user) => ({
       id: user.id, email: user.email, name: user.name, role: user.role, title: user.title, department: user.department,
-      password_salt: user.passwordSalt, password_hash: user.passwordHash, created_at: user.createdAt
+      password_salt: user.passwordSalt, password_hash: user.passwordHash, created_at: user.createdAt,
+      role_id: user.roleId, department_id: user.departmentId, phone: user.phone, start_date: user.startDate, is_active: user.active, updated_at: user.updatedAt ?? user.createdAt
+    })),
+    leaves: data.leaveRequests.map((leave) => ({
+      id: leave.id, employee_id: leave.employeeId, leave_type: leave.type, start_date: leave.startDate, end_date: leave.endDate, days: leave.days,
+      reason: leave.reason, status: leave.status, review_note: leave.reviewNote, created_at: leave.createdAt, decided_at: nullable(leave.decidedAt), decided_by: nullable(leave.decidedBy)
     })),
     attendance: data.attendance.map((record) => ({
       id: record.id, user_id: record.userId, work_date: record.date, clock_in: nullable(record.clockIn), clock_out: nullable(record.clockOut),
@@ -117,8 +130,13 @@ export function serializeWorkspace(data) {
     invoices: data.invoices.map((invoice) => ({
       id: invoice.id, employee_id: invoice.employeeId, invoice_month: invoice.month, amount: invoice.amount, status: invoice.status,
       payment_details: invoice.paymentDetails ?? '', ...fileColumns('document', invoice.document), submitted_at: invoice.submittedAt,
-      decided_at: nullable(invoice.decidedAt), decided_by: nullable(invoice.decidedBy)
+      decided_at: nullable(invoice.decidedAt), decided_by: nullable(invoice.decidedBy), currency: invoice.currency ?? 'USD',
+      subtotal: invoice.subtotal ?? invoice.amount, tax_rate: invoice.taxRate ?? 0, tax_amount: invoice.taxAmount ?? 0,
+      notes: invoice.notes ?? '', due_date: nullable(invoice.dueDate), created_at: invoice.createdAt ?? invoice.submittedAt, updated_at: invoice.updatedAt ?? invoice.decidedAt ?? invoice.submittedAt
     })),
+    invoiceItems: data.invoices.flatMap((invoice) => (invoice.lineItems ?? []).map((item, position) => ({
+      invoice_id: invoice.id, position, description: item.description, quantity: item.quantity, unit_rate: item.unitRate, amount: item.amount
+    }))),
     meetings: data.meetings.map((meeting) => ({ id: meeting.id, title: meeting.title, starts_at: meeting.startsAt, status: meeting.status, created_by: meeting.createdBy })),
     participants: data.meetings.flatMap((meeting) => meeting.participants.map((userId) => ({ meeting_id: meeting.id, user_id: userId }))),
     equipmentRequests: data.equipmentRequests.map((request) => ({
@@ -141,11 +159,12 @@ export function serializeWorkspace(data) {
 /** Rebuilds the existing domain model from normalized Supabase rows. */
 export function hydrateWorkspace(rows) {
   const participantsByMeeting = groupBy(rows.participants, 'meeting_id');
+  const itemsByInvoice = groupBy(rows.invoiceItems ?? [], 'invoice_id');
   const audiencesByNotification = groupBy(rows.audiences, 'notification_id');
   const readsByNotification = groupBy(rows.reads, 'notification_id');
   const settings = rows.settings;
 
-  return {
+  return ensureWorkspaceFeatures({
     schemaVersion: settings.schema_version,
     organization: {
       name: settings.company_name,
@@ -153,9 +172,16 @@ export function hydrateWorkspace(rows) {
       standardStartTime: String(settings.standard_start_time).slice(0, 5),
       inactivityLockMinutes: asNumber(settings.inactivity_lock_minutes)
     },
+    roles: rows.roles?.map((role) => ({ id: role.id, name: role.name, baseRole: role.base_role, description: role.description, system: role.is_system, createdAt: role.created_at })),
+    departments: rows.departments?.map((department) => ({ id: department.id, name: department.name, createdAt: department.created_at })),
     users: rows.users.map((user) => ({
       id: user.id, email: user.email, name: user.name, role: user.role, accessGroup: user.access_group ?? accessGroupForRole(user.role), title: user.title, department: user.department,
-      passwordSalt: user.password_salt, passwordHash: user.password_hash, createdAt: user.created_at
+      passwordSalt: user.password_salt, passwordHash: user.password_hash, createdAt: user.created_at,
+      roleId: user.role_id ?? user.role, departmentId: user.department_id, phone: user.phone, startDate: user.start_date, active: user.is_active, updatedAt: user.updated_at
+    })),
+    leaveRequests: (rows.leaves ?? []).map((leave) => ({
+      id: leave.id, employeeId: leave.employee_id, type: leave.leave_type, startDate: leave.start_date, endDate: leave.end_date, days: asNumber(leave.days), reason: leave.reason,
+      status: leave.status, reviewNote: leave.review_note, createdAt: leave.created_at, decidedAt: leave.decided_at, decidedBy: leave.decided_by
     })),
     attendance: rows.attendance.map((record) => ({
       id: record.id, userId: record.user_id, date: record.work_date, clockIn: record.clock_in, clockOut: record.clock_out,
@@ -188,7 +214,10 @@ export function hydrateWorkspace(rows) {
     invoices: rows.invoices.map((invoice) => ({
       id: invoice.id, employeeId: invoice.employee_id, month: invoice.invoice_month, amount: asNumber(invoice.amount), status: invoice.status,
       paymentDetails: invoice.payment_details, documentName: invoice.document_original_name, document: fileFromColumns('document', invoice),
-      submittedAt: invoice.submitted_at, decidedAt: invoice.decided_at, decidedBy: invoice.decided_by
+      submittedAt: invoice.submitted_at, decidedAt: invoice.decided_at, decidedBy: invoice.decided_by,
+      currency: invoice.currency ?? 'USD', subtotal: asNumber(invoice.subtotal ?? invoice.amount), taxRate: asNumber(invoice.tax_rate ?? 0), taxAmount: asNumber(invoice.tax_amount ?? 0),
+      notes: invoice.notes ?? '', dueDate: invoice.due_date, createdAt: invoice.created_at ?? invoice.submitted_at, updatedAt: invoice.updated_at ?? invoice.submitted_at,
+      lineItems: (itemsByInvoice.get(invoice.id) ?? []).sort((a, b) => a.position - b.position).map((item) => ({ description: item.description, quantity: asNumber(item.quantity), unitRate: asNumber(item.unit_rate), amount: asNumber(item.amount) }))
     })),
     meetings: rows.meetings.map((meeting) => ({
       id: meeting.id, title: meeting.title, startsAt: meeting.starts_at, status: meeting.status, createdBy: meeting.created_by,
@@ -210,7 +239,7 @@ export function hydrateWorkspace(rows) {
       id: entry.id, timestamp: entry.occurred_at, actorId: entry.actor_id, subjectUserId: entry.subject_user_id ?? entry.actor_id,
       sessionId: entry.session_id, breakLogId: entry.break_log_id, eventType: entry.event_type ?? 'GENERAL', action: entry.action
     }))
-  };
+  });
 }
 
 export class SupabaseRelationalStore {
@@ -238,7 +267,8 @@ export class SupabaseRelationalStore {
   }
 
   async loadWorkspace(settings) {
-    const [users, attendance, corrections, workSessions, breakLogs, heartbeats, samples, flags, invoices, meetings, participants, equipmentRequests, assets, notifications, audiences, reads, audit] = await Promise.all([
+    const [roles, departments, leaves, invoiceItems, users, attendance, corrections, workSessions, breakLogs, heartbeats, samples, flags, invoices, meetings, participants, equipmentRequests, assets, notifications, audiences, reads, audit] = await Promise.all([
+      this.client.from(TABLE.roles).select('*'), this.client.from(TABLE.departments).select('*'), this.client.from(TABLE.leaves).select('*'), this.client.from(TABLE.invoiceItems).select('*'),
       this.client.from(TABLE.users).select('*'), this.client.from(TABLE.attendance).select('*'), this.client.from(TABLE.corrections).select('*'),
       this.client.from(TABLE.workSessions).select('*'), this.client.from(TABLE.breakLogs).select('*'), this.client.from(TABLE.heartbeats).select('*'),
       this.client.from(TABLE.samples).select('*'), this.client.from(TABLE.flags).select('*'), this.client.from(TABLE.invoices).select('*'),
@@ -248,7 +278,8 @@ export class SupabaseRelationalStore {
     ]);
 
     return hydrateWorkspace({
-      settings,
+      settings, roles: resultData(roles, 'roles'), departments: resultData(departments, 'departments'),
+      leaves: resultData(leaves, 'leave requests'), invoiceItems: resultData(invoiceItems, 'invoice items'),
       users: resultData(users, 'users'), attendance: resultData(attendance, 'attendance'), corrections: resultData(corrections, 'attendance corrections'),
       workSessions: resultData(workSessions, 'work sessions'), breakLogs: resultData(breakLogs, 'break logs'), heartbeats: resultData(heartbeats, 'activity heartbeats'),
       samples: resultData(samples, 'activity samples'), flags: resultData(flags, 'activity flags'), invoices: resultData(invoices, 'invoices'),
@@ -271,18 +302,29 @@ export class SupabaseRelationalStore {
     if (!data || asNumber(data.version) !== expectedVersion) throw new HttpError(409, 'Workspace data changed elsewhere. Please retry your action.');
   }
 
-  async persistAll({ expectedVersion, nextVersion }) {
+  async persistAll({ expectedVersion, nextVersion, previousData }) {
     await this.assertVersion(expectedVersion);
     const rows = serializeWorkspace(this.data);
 
     // Parent entities are saved first so every foreign key remains valid.
+    await this.upsert(TABLE.roles, rows.roles);
+    await this.upsert(TABLE.departments, rows.departments);
     await this.upsert(TABLE.users, rows.users);
     await this.upsert(TABLE.workSessions, rows.workSessions);
     await Promise.all([
       this.upsert(TABLE.attendance, rows.attendance), this.upsert(TABLE.corrections, rows.corrections), this.upsert(TABLE.invoices, rows.invoices),
       this.upsert(TABLE.meetings, rows.meetings), this.upsert(TABLE.requests, rows.equipmentRequests), this.upsert(TABLE.assets, rows.assets),
-      this.upsert(TABLE.notifications, rows.notifications), this.upsert(TABLE.breakLogs, rows.breakLogs), this.upsert(TABLE.flags, rows.flags)
+      this.upsert(TABLE.notifications, rows.notifications), this.upsert(TABLE.breakLogs, rows.breakLogs), this.upsert(TABLE.flags, rows.flags), this.upsert(TABLE.leaves, rows.leaves)
     ]);
+    await this.upsert(TABLE.invoiceItems, rows.invoiceItems, 'invoice_id,position');
+    if (previousData) {
+      const nextKeys = new Set(rows.invoiceItems.map((item) => `${item.invoice_id}:${item.position}`));
+      const removed = serializeWorkspace(previousData).invoiceItems.filter((item) => !nextKeys.has(`${item.invoice_id}:${item.position}`));
+      for (const item of removed) {
+        const { error } = await this.client.from(TABLE.invoiceItems).delete().eq('invoice_id', item.invoice_id).eq('position', item.position);
+        if (error) throw new Error(`Unable to remove obsolete invoice items: ${error.message}`);
+      }
+    }
     await this.upsert(TABLE.heartbeats, rows.heartbeats);
     await Promise.all([
       this.upsert(TABLE.samples, rows.samples), this.upsert(TABLE.audit, rows.audit),
@@ -345,7 +387,7 @@ export class SupabaseRelationalStore {
     const version = this.version;
     try {
       const result = callback(this.data);
-      await this.persistAll({ expectedVersion: version, nextVersion: version + 1 });
+      await this.persistAll({ expectedVersion: version, nextVersion: version + 1, previousData: snapshot });
       this.version += 1;
       return result;
     } catch (error) {

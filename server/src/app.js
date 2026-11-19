@@ -13,6 +13,8 @@ import { createAuthRouter } from './routes/auth.routes.js';
 import { createEquipmentRouter } from './routes/equipment.routes.js';
 import { createInvoicesRouter } from './routes/invoices.routes.js';
 import { createMeetingsRouter } from './routes/meetings.routes.js';
+import { createLeavesRouter } from './routes/leaves.routes.js';
+import { createUsersRouter } from './routes/users.routes.js';
 import { createWorkspaceRouter } from './routes/workspace.routes.js';
 
 // Reuse the limiter across serverless invocations on the same warm instance.
@@ -39,6 +41,8 @@ export function createApp({ store, sessions, storage, clientDistPath, trustProxy
   app.use('/api/activity', createActivityRouter());
   app.use('/api/admin', createAdminRouter());
   app.use('/api/invoices', createInvoicesRouter());
+  app.use('/api/leaves', createLeavesRouter());
+  app.use('/api/admin/users', createUsersRouter());
   app.use('/api/meetings', createMeetingsRouter());
   app.use('/api/equipment', createEquipmentRouter());
   app.use('/api', createWorkspaceRouter());
